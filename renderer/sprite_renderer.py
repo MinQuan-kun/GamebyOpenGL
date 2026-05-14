@@ -31,8 +31,7 @@ class SpriteRenderer:
         u_start, u_end = u, u + self.u_step
         if flip_x: u_start, u_end = u_end, u_start
 
-        # Tinh chỉnh UV để tránh lộ viền (seams)
-        eps = 0.0001
+        eps = 0.0
         
         glBegin(GL_QUADS)
         glTexCoord2f(u_start + eps, v + eps);                   glVertex2f(x, y)

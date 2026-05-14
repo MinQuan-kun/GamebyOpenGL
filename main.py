@@ -6,7 +6,7 @@ from entities.player import Player
 from entities.enemies import Enemy
 from entities.item import Item
 from entities.ground import Ground
-from utils.constants import ENEMY_WIDTH, ENEMY_HEIGHT, GROUND_Y_AREA_A, SCREEN_WIDTH, SCREEN_HEIGHT, TILE_SIZE, GAME_MAP
+from utils.constants import ENEMY_WIDTH, ENEMY_HEIGHT, GROUND_Y_AREA_A
 from utils.font_renderer import FontRenderer
 
 # Trạng thái game
@@ -46,7 +46,7 @@ def main():
     pg.init()
     display = (1280, 720)
     pg.display.set_mode(display, pg.DOUBLEBUF | pg.OPENGL)
-    pg.display.set_caption("Rabbit Metroidvania - Adventure Mode")
+    pg.display.set_caption("Game Platformer 2D - OpenGL")
 
     glViewport(0, 0, 1280, 720)
     glMatrixMode(GL_PROJECTION)
@@ -59,11 +59,9 @@ def main():
     enemy_renderer = SpriteRenderer("assets/enemies/Enemy.png", rows=2, cols=4)
     item_renderer = SpriteRenderer("assets/item/Carrot.png", rows=1, cols=1)
     heart_renderer = SpriteRenderer("assets/objects/Heart.png", rows=2, cols=1)
-    tile_renderer = SpriteRenderer("assets/ground/ground.png", rows=4, cols=4)
-    
+    tile_renderer = SpriteRenderer("assets/ground/ground.png", rows=1, cols=1)   
     player = Player(100, GROUND_Y_AREA_A, 64, 64, player_renderer) 
-    ground = Ground(GAME_MAP, tile_renderer)
-    
+    ground = Ground(tile_renderer)    
     # Khởi tạo một số kẻ địch và vật phẩm tại các vị trí cố định trên map
     enemies = [
         Enemy(800, GROUND_Y_AREA_A, ENEMY_WIDTH, ENEMY_HEIGHT, enemy_renderer),
