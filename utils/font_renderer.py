@@ -1,8 +1,6 @@
 from OpenGL.GL import *
 
 class FontRenderer:
-    # Định nghĩa các đoạn thẳng cho 7 thanh của một chữ số
-    # Mỗi đoạn là (x1, y1, x2, y2) trong khung 0-1
     SEGMENTS = {
         'a': (0, 1, 0.5, 1),   # Ngang trên
         'b': (0.5, 1, 0.5, 0.5), # Dọc trên phải
@@ -53,4 +51,4 @@ class FontRenderer:
         current_x = x
         for char in str_num:
             FontRenderer.draw_digit(char, current_x, y, size)
-            current_x += size + spacing # Cách khoảng giữa các chữ số
+            current_x += size + spacing

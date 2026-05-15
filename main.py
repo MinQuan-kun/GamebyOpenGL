@@ -8,6 +8,7 @@ from entities.item import Item
 from entities.ground import Ground
 from utils.constants import ENEMY_WIDTH, ENEMY_HEIGHT, GROUND_Y_AREA_A
 from utils.font_renderer import FontRenderer
+from utils.text_renderer import TextRenderer
 
 # Trạng thái game
 STATE_START = 0
@@ -60,6 +61,10 @@ def main():
     item_renderer = SpriteRenderer("assets/item/Carrot.png", rows=1, cols=1)
     heart_renderer = SpriteRenderer("assets/objects/Heart.png", rows=2, cols=1)
     tile_renderer = SpriteRenderer("assets/ground/ground.png", rows=1, cols=1)   
+    
+    # Khởi tạo TextRenderer dùng chữ thường
+    text_renderer = TextRenderer("consolas")
+    
     player = Player(100, GROUND_Y_AREA_A, 64, 64, player_renderer) 
     ground = Ground(tile_renderer)    
     # Khởi tạo một số kẻ địch và vật phẩm tại các vị trí cố định trên map
@@ -100,6 +105,9 @@ def main():
             draw_sky()
             player_renderer.draw(600, 360, 128, 128, 0)
             
+            # Hiển thị text màn hình bắt đầu
+            text_renderer.draw_text("PRESS ANY KEY TO START", 640, 250, size=40, center_x=True)
+            
         elif game_state == STATE_PLAYING:
             keys = pg.key.get_pressed()
             
@@ -128,8 +136,6 @@ def main():
 
             # Quản lý Enemies
             for enemy in enemies:
-                # Enemy trong chế độ phiêu lưu có thể đứng yên hoặc tuần tra
-                # Ở đây chúng ta giữ nguyên update nhưng truyền camera vào draw
                 enemy.update() 
                 enemy.draw(camera_x)
                 
@@ -151,11 +157,14 @@ def main():
             # Vẽ UI (Cố định trên màn hình, không bị camera ảnh hưởng)
             draw_hearts(player.hp, heart_renderer)
             glColor3f(1, 1, 1)
-            FontRenderer.draw_number(score, 1100, 650, 30)
+            text_renderer.draw_text(f"SCORE: {score}", 1050, 660, size=30)
 
         elif game_state == STATE_GAMEOVER:
             glClearColor(0.4, 0.0, 0.0, 1.0)
-            FontRenderer.draw_number(score, 580, 300, 80)
+            
+            text_renderer.draw_text("GAME OVER", 640, 450, size=80, color=(255, 50, 50), center_x=True)
+            text_renderer.draw_text(f"SCORE: {score}", 640, 350, size=50, center_x=True)
+            text_renderer.draw_text("PRESS ANY KEY TO RESTART", 640, 200, size=40, center_x=True)
 
         pg.display.flip()
         clock.tick(60)

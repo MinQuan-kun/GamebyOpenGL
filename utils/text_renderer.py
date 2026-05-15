@@ -1,56 +1,68 @@
+import pygame as pg
 from OpenGL.GL import *
-from utils.texture_loader import TextureLoader
-from utils.constants import SCREEN_WIDTH, SCREEN_HEIGHT
 
 class TextRenderer:
-    def __init__(self, texture_path):
-        self.tex_id, self.w, self.h = TextureLoader.load_texture(texture_path)
-        # Ảnh OCR-A-Extended.png của Quân có 13 cột và 6 hàng
-        self.cols = 13
-        self.rows = 6
-        # Tính tỉ lệ màn hình để chống méo chữ (1200x600 -> ratio = 0.5)
-        self.aspect_ratio = SCREEN_HEIGHT / SCREEN_WIDTH 
+    def __init__(self, font_name="consolas"):
+        # Khởi tạo font hệ thống, ví dụ: 'consolas', 'arial', 'impact', v.v.
+        pg.font.init()
+        self.font_name = font_name
+        self.fonts = {}
+        self.texture_cache = {} # Lưu cache texture để tối ưu hiệu suất
 
-    def draw_text(self, text, x, y, size):
-        # BẢNG MÃ CHUẨN: Khớp chính xác với vị trí các chữ trong ảnh của bạn
-        CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*() "
+    def get_font(self, size):
+        if size not in self.fonts:
+            try:
+                # Dùng font hệ thống
+                self.fonts[size] = pg.font.SysFont(self.font_name, size, bold=True)
+            except:
+                # Nếu không tìm thấy, dùng font mặc định của Pygame
+                self.fonts[size] = pg.font.Font(None, size)
+        return self.fonts[size]
+
+    def _get_text_texture(self, text, size, color):
+        key = (text, size, color)
+        if key in self.texture_cache:
+            return self.texture_cache[key]
+            
+        font = self.get_font(size)
+        # Render text lên surface Pygame (với Anti-aliasing = True)
+        surface = font.render(text, True, color)
+        width, height = surface.get_size()
         
+        # Chuyển đổi dữ liệu ảnh để nạp vào OpenGL
+        data = pg.image.tostring(surface, "RGBA", True)
+        
+        texture_id = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, texture_id)
+        
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
+        
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data)
+        
+        self.texture_cache[key] = (texture_id, width, height)
+        return texture_id, width, height
+
+    def draw_text(self, text, x, y, size=30, color=(255, 255, 255), center_x=False):
+        texture_id, width, height = self._get_text_texture(str(text), size, color)
+        
+        # Nếu muốn căn giữa thì dịch chuyển x
+        if center_x:
+            x = x - width / 2
+            
         glEnable(GL_TEXTURE_2D)
-        glBindTexture(GL_TEXTURE_2D, self.tex_id)
+        glBindTexture(GL_TEXTURE_2D, texture_id)
         glEnable(GL_BLEND)
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
         
+        glColor3f(1.0, 1.0, 1.0) # Tránh bị ám màu từ các lệnh vẽ trước
+        
         glBegin(GL_QUADS)
-        current_x = x
-        for char in text:
-            if char == " ": # Nếu là dấu cách, chỉ di chuyển vị trí vẽ tiếp theo
-                current_x += size * 0.4 * self.aspect_ratio
-                continue
-                
-            index = CHARS.find(char)
-            if index == -1: continue # Bỏ qua ký tự không có trong ảnh
-            
-            # Tính tọa độ hàng/cột trong lưới 13 cột
-            c = index % self.cols
-            r = index // self.cols
-            
-            # Tính tọa độ Texture (UV)
-            u = c / self.cols
-            v = 1.0 - (r / self.rows)
-            u_step = 1.0 / self.cols
-            v_step = 1.0 / self.rows
-
-            # Chiều ngang chữ cần nhân với aspect_ratio để không bị "béo"
-            char_width = size * self.aspect_ratio
-            
-            glTexCoord2f(u, v - v_step);          glVertex2f(current_x, y)
-            glTexCoord2f(u + u_step, v - v_step); glVertex2f(current_x + char_width, y)
-            glTexCoord2f(u + u_step, v);          glVertex2f(current_x + char_width, y + size)
-            glTexCoord2f(u, v);                   glVertex2f(current_x, y + size)
-            
-            # Khoảng cách giữa các chữ (Kerning)
-            current_x += char_width * 0.8 
-            
+        glTexCoord2f(0, 0); glVertex2f(x, y)
+        glTexCoord2f(1, 0); glVertex2f(x + width, y)
+        glTexCoord2f(1, 1); glVertex2f(x + width, y + height)
+        glTexCoord2f(0, 1); glVertex2f(x, y + height)
         glEnd()
+        
         glDisable(GL_BLEND)
         glDisable(GL_TEXTURE_2D)
