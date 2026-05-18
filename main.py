@@ -1,173 +1,220 @@
+# main.py  –  Pokemon Turn-Based Game (OpenGL + Pygame)
 import pygame as pg
 from OpenGL.GL import *
 from OpenGL.GLU import *
-from renderer.sprite_renderer import SpriteRenderer 
-from entities.player import Player
-from entities.enemies import Enemy
-from entities.item import Item
-from entities.ground import Ground
-from utils.constants import ENEMY_WIDTH, ENEMY_HEIGHT, GROUND_Y_AREA_A
-from utils.font_renderer import FontRenderer
+
+from renderer.sprite_renderer import SpriteRenderer
 from utils.text_renderer import TextRenderer
+from utils.constants import SCREEN_WIDTH, SCREEN_HEIGHT
 
-# Trạng thái game
-STATE_START = 0
-STATE_PLAYING = 1
-STATE_GAMEOVER = 2
+from game.overworld import (
+    OverworldPlayer, draw_overworld,
+    TILEMAP, T_BUSH, T_BUSH2, T_BOSS, MAP_ROWS, TILE
+)
+from game.combat_entities import (
+    Rabbit, Fox, spawn_bush1_enemies, spawn_bush2_enemies
+)
+from game.battle import BattleSystem
 
-def check_collision(rect1, rect2):
-    return (rect1.x < rect2.x + rect2.width and
-            rect1.x + rect1.width > rect2.x and
-            rect1.y < rect2.y + rect2.height and
-            rect1.y + rect1.height > rect2.y)
+# ── Game States ───────────────────────────────────────────────────────────
+ST_TITLE     = 0
+ST_OVERWORLD = 1
+ST_BATTLE    = 2
+ST_GAMEOVER  = 3
+ST_WIN       = 4
 
-def draw_hearts(hp, renderer):
-    # Vẽ 3 vị trí trái tim cố định
-    for i in range(3):
-        # Nếu chỉ số i < hp thì vẽ tim đầy (frame 1), ngược lại vẽ tim rỗng (frame 0)
-        frame = 0 if i < hp else 1
-        renderer.draw(50 + i * 50, 650, 40, 40, frame)
+# ── Cooldown bụi cỏ (frames) để không liên tục trigger ───────────────────
+BUSH_COOLDOWN = 120
 
-def draw_sky():
-    glDisable(GL_TEXTURE_2D)
-    glBegin(GL_QUADS)
-    # Màu xanh đậm phía trên
-    glColor3f(0.3, 0.6, 0.9)
-    glVertex2f(0, 720)
-    glVertex2f(1280, 720)
-    # Màu xanh nhạt (hơi trắng) phía dưới chân trời
-    glColor3f(0.7, 0.9, 1.0)
-    glVertex2f(1280, 0)
-    glVertex2f(0, 0)
-    glEnd()
-    glColor3f(1, 1, 1)
-    glEnable(GL_TEXTURE_2D)
+
+def setup_opengl():
+    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
+    glMatrixMode(GL_PROJECTION)
+    glLoadIdentity()
+    gluOrtho2D(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
+    glMatrixMode(GL_MODELVIEW)
+    glLoadIdentity()
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+
+def draw_title(text_ren):
+    glClearColor(0.05, 0.08, 0.05, 1.0)
+    glClear(GL_COLOR_BUFFER_BIT)
+    # Tiêu đề
+    from game.ui import draw_rect_gl, draw_panel
+    draw_panel(SCREEN_WIDTH//2 - 320, SCREEN_HEIGHT//2 - 20, 640, 120, 220)
+    text_ren.draw_text("RABBIT ADVENTURE", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 50,
+                       size=60, color=(100, 240, 100), center_x=True)
+    text_ren.draw_text("Turn-Based  Pokemon-Style", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 10,
+                       size=26, color=(180, 230, 180), center_x=True)
+    text_ren.draw_text("Nhấn ENTER để bắt đầu", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 60,
+                       size=22, color=(200, 200, 100), center_x=True)
+    text_ren.draw_text("WASD: Di chuyển  |  Mũi tên: Chọn lệnh  |  ENTER/Z: Xác nhận  |  1-2-3: Chọn mục tiêu",
+                       SCREEN_WIDTH//2, 30, size=16, color=(140, 160, 140), center_x=True)
+
+
+def draw_gameover(text_ren):
+    from game.ui import draw_panel
+    glClearColor(0.12, 0.02, 0.02, 1.0)
+    glClear(GL_COLOR_BUFFER_BIT)
+    draw_panel(SCREEN_WIDTH//2 - 260, SCREEN_HEIGHT//2 - 60, 520, 150, 220)
+    text_ren.draw_text("GAME OVER", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 40,
+                       size=64, color=(255, 60, 60), center_x=True)
+    text_ren.draw_text("Nhấn ENTER để chơi lại", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 30,
+                       size=26, color=(200, 140, 140), center_x=True)
+
+
+def draw_win(text_ren, rabbit):
+    from game.ui import draw_panel
+    glClearColor(0.02, 0.10, 0.02, 1.0)
+    glClear(GL_COLOR_BUFFER_BIT)
+    draw_panel(SCREEN_WIDTH//2 - 300, SCREEN_HEIGHT//2 - 80, 600, 180, 220)
+    text_ren.draw_text("CHIẾN THẮNG!", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 60,
+                       size=60, color=(80, 255, 80), center_x=True)
+    text_ren.draw_text(f"Bạn đã đánh bại Boss Cáo!  Lv.{rabbit.level}",
+                       SCREEN_WIDTH//2, SCREEN_HEIGHT//2, size=28,
+                       color=(220, 210, 80), center_x=True)
+    text_ren.draw_text("Nhấn ENTER để chơi lại", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 50,
+                       size=22, color=(160, 200, 160), center_x=True)
+
 
 def main():
     pg.init()
-    display = (1280, 720)
-    pg.display.set_mode(display, pg.DOUBLEBUF | pg.OPENGL)
-    pg.display.set_caption("Game Platformer 2D - OpenGL")
+    pg.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pg.DOUBLEBUF | pg.OPENGL)
+    pg.display.set_caption("Rabbit Adventure – Turn-Based Pokemon")
+    setup_opengl()
 
-    glViewport(0, 0, 1280, 720)
-    glMatrixMode(GL_PROJECTION)
-    glLoadIdentity()
-    gluOrtho2D(0, 1280, 0, 720) 
-    glMatrixMode(GL_MODELVIEW)
+    text_ren = TextRenderer("consolas")
 
-    # Nạp Renderers
-    player_renderer = SpriteRenderer("assets/player/Player.png", rows=3, cols=3)
-    enemy_renderer = SpriteRenderer("assets/enemies/Enemy.png", rows=2, cols=4)
-    item_renderer = SpriteRenderer("assets/item/Carrot.png", rows=1, cols=1)
-    heart_renderer = SpriteRenderer("assets/objects/Heart.png", rows=2, cols=1)
-    tile_renderer = SpriteRenderer("assets/ground/ground.png", rows=1, cols=1)   
-    
-    # Khởi tạo TextRenderer dùng chữ thường
-    text_renderer = TextRenderer("consolas")
-    
-    player = Player(100, GROUND_Y_AREA_A, 64, 64, player_renderer) 
-    ground = Ground(tile_renderer)    
-    # Khởi tạo một số kẻ địch và vật phẩm tại các vị trí cố định trên map
-    enemies = [
-        Enemy(800, GROUND_Y_AREA_A, ENEMY_WIDTH, ENEMY_HEIGHT, enemy_renderer),
-        Enemy(1500, GROUND_Y_AREA_A, ENEMY_WIDTH, ENEMY_HEIGHT, enemy_renderer),
-        Enemy(2500, GROUND_Y_AREA_A, ENEMY_WIDTH, ENEMY_HEIGHT, enemy_renderer)
-    ]
-    items = [
-        Item(500, GROUND_Y_AREA_A + 150, 40, 40, item_renderer),
-        Item(1200, GROUND_Y_AREA_A + 200, 40, 40, item_renderer),
-        Item(2000, GROUND_Y_AREA_A + 150, 40, 40, item_renderer)
-    ]
-    
-    camera_x = 0
-    score = 0
-    game_state = STATE_START
+    # Sprite renderers (dùng placeholder 1×1 nếu file chưa có)
+    def safe_renderer(path, rows=1, cols=1):
+        try:
+            return SpriteRenderer(path, rows, cols)
+        except Exception:
+            return None
+
+    renderers = {
+        "rabbit": safe_renderer("assets/player/Player.png", 3, 3),
+        "slime":  safe_renderer("assets/enemies/Enemy.png", 2, 4),
+        "bee":    safe_renderer("assets/enemies/Enemy.png", 2, 4),
+        "fox":    safe_renderer("assets/enemies/Enemy.png", 2, 4),
+    }
+
+    def new_game():
+        return OverworldPlayer(col=2, row=10), Rabbit()
+
+    ow_player, rabbit = new_game()
+    state        = ST_TITLE
+    battle_sys   = None
+    bush_cd      = 0   # cooldown bụi cỏ
+    boss_defeated = False
 
     clock = pg.time.Clock()
-    
+
     while True:
-        for event in pg.event.get():
+        events = pg.event.get()
+        for event in events:
             if event.type == pg.QUIT:
                 pg.quit()
                 return
-            if event.type == pg.KEYDOWN:
-                if game_state == STATE_START:
-                    game_state = STATE_PLAYING
-                elif game_state == STATE_GAMEOVER:
-                    player.hp = 3
-                    player.x, player.y = 100, GROUND_Y_AREA_A
-                    score = 0
-                    game_state = STATE_PLAYING
 
+            # ── TITLE ───────────────────────────────────────────────────
+            if state == ST_TITLE:
+                if event.type == pg.KEYDOWN and event.key == pg.K_RETURN:
+                    state = ST_OVERWORLD
+
+            # ── GAMEOVER / WIN ──────────────────────────────────────────
+            elif state in (ST_GAMEOVER, ST_WIN):
+                if event.type == pg.KEYDOWN and event.key == pg.K_RETURN:
+                    ow_player, rabbit = new_game()
+                    boss_defeated = False
+                    bush_cd = 0
+                    state = ST_OVERWORLD
+
+            # ── OVERWORLD ───────────────────────────────────────────────
+            elif state == ST_OVERWORLD:
+                pass  # input xử lý trong update bên dưới
+
+            # ── BATTLE ──────────────────────────────────────────────────
+            elif state == ST_BATTLE and battle_sys is not None:
+                battle_sys.handle_input(event)
+                if battle_sys.handle_done_input(event):
+                    # Kết thúc battle
+                    result = battle_sys.result
+                    if result == "lose":
+                        state = ST_GAMEOVER
+                    elif result == "win" and battle_sys.is_boss:
+                        state = ST_WIN
+                        boss_defeated = True
+                    else:
+                        # win thường hoặc run → về overworld
+                        if rabbit.hp <= 0:
+                            state = ST_GAMEOVER
+                        else:
+                            state = ST_OVERWORLD
+                            bush_cd = BUSH_COOLDOWN
+                    battle_sys = None
+
+        # ── UPDATE ──────────────────────────────────────────────────────────
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-        if game_state == STATE_START:
-            draw_sky()
-            player_renderer.draw(600, 360, 128, 128, 0)
-            
-            # Hiển thị text màn hình bắt đầu
-            text_renderer.draw_text("PRESS ANY KEY TO START", 640, 250, size=40, center_x=True)
-            
-        elif game_state == STATE_PLAYING:
+        if state == ST_TITLE:
+            draw_title(text_ren)
+
+        elif state == ST_OVERWORLD:
             keys = pg.key.get_pressed()
-            
-            # 1. Cập nhật Player
-            player.update(keys)
-            
-            # Giới hạn nhân vật không đi quá map bên trái
-            if player.x < 0: player.x = 0
-            
-            # 2. Cập nhật Camera (Giữ player ở giữa màn hình)
-            camera_x = player.x - 640
-            # Giới hạn camera không đi quá map bên trái
-            if camera_x < 0: camera_x = 0
-            # Giới hạn camera không đi quá map bên phải (Map dài 100 tiles * 64 = 6400)
-            if camera_x > 6400 - 1280: camera_x = 6400 - 1280
+            ow_player.update(keys)
 
-            # --- VẼ THEO THỨ TỰ LỚP ---
-            draw_sky()
-            
-            # Vẽ Ground với Camera offset
-            ground.draw(camera_x)
-            
-            # Vẽ Player với Camera offset
-            if player.invincible_timer % 10 < 5:
-                player.draw(camera_x)
+            if bush_cd > 0:
+                bush_cd -= 1
 
-            # Quản lý Enemies
-            for enemy in enemies:
-                enemy.update() 
-                enemy.draw(camera_x)
-                
-                if player.invincible_timer == 0 and check_collision(player, enemy):
-                    player.hp -= 1
-                    player.invincible_timer = 60
-                    if player.hp <= 0:
-                        game_state = STATE_GAMEOVER
+            # Kiểm tra tile hiện tại
+            cur_tile = ow_player.current_tile()
 
-            # Quản lý Items
-            for item in items[:]:
-                item.update()
-                item.draw(camera_x)
-                if check_collision(player, item):
-                    if player.hp < 3: player.hp += 1
-                    items.remove(item)
-                    score += 10 # Ăn cà rốt được điểm
+            if bush_cd == 0 and cur_tile in (T_BUSH, T_BUSH2, T_BOSS):
+                # Trigger encounter
+                if cur_tile == T_BOSS and not boss_defeated:
+                    boss_lv = max(rabbit.level, rabbit.level)
+                    fox = Fox(boss_lv)
+                    battle_sys = BattleSystem(rabbit, [fox], text_ren, renderers, is_boss=True)
+                    state = ST_BATTLE
+                    bush_cd = BUSH_COOLDOWN
+                elif cur_tile == T_BUSH:
+                    enemies = spawn_bush1_enemies(rabbit.level)
+                    battle_sys = BattleSystem(rabbit, enemies, text_ren, renderers, is_boss=False)
+                    state = ST_BATTLE
+                    bush_cd = BUSH_COOLDOWN
+                elif cur_tile == T_BUSH2:
+                    enemies = spawn_bush2_enemies(rabbit.level)
+                    battle_sys = BattleSystem(rabbit, enemies, text_ren, renderers, is_boss=False)
+                    state = ST_BATTLE
+                    bush_cd = BUSH_COOLDOWN
 
-            # Vẽ UI (Cố định trên màn hình, không bị camera ảnh hưởng)
-            draw_hearts(player.hp, heart_renderer)
-            glColor3f(1, 1, 1)
-            text_renderer.draw_text(f"SCORE: {score}", 1050, 660, size=30)
+            draw_overworld(ow_player, text_ren)
 
-        elif game_state == STATE_GAMEOVER:
-            glClearColor(0.4, 0.0, 0.0, 1.0)
-            
-            text_renderer.draw_text("GAME OVER", 640, 450, size=80, color=(255, 50, 50), center_x=True)
-            text_renderer.draw_text(f"SCORE: {score}", 640, 350, size=50, center_x=True)
-            text_renderer.draw_text("PRESS ANY KEY TO RESTART", 640, 200, size=40, center_x=True)
+            # Mini HUD rabbit
+            text_ren.draw_text(
+                f"Rabbit  Lv.{rabbit.level}  HP:{rabbit.hp}/{rabbit.max_hp}  EXP:{rabbit.exp}/{rabbit.exp_to_next}",
+                10, SCREEN_HEIGHT - 22, size=16, color=(200, 240, 200)
+            )
+            if boss_defeated:
+                text_ren.draw_text("Boss đã bị đánh bại!", SCREEN_WIDTH//2, SCREEN_HEIGHT - 22,
+                                   size=16, color=(220, 200, 80), center_x=True)
+
+        elif state == ST_BATTLE and battle_sys is not None:
+            battle_sys.update()
+            battle_sys.draw()
+
+        elif state == ST_GAMEOVER:
+            draw_gameover(text_ren)
+
+        elif state == ST_WIN:
+            draw_win(text_ren, rabbit)
 
         pg.display.flip()
         clock.tick(60)
+
 
 if __name__ == "__main__":
     main()
