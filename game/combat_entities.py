@@ -99,6 +99,8 @@ class BaseEnemy:
         self.atk     = _level_scale(self.BASE_ATK, self.level, 0.10)
         self.exp_reward = _level_scale(self.BASE_EXP, self.level, 0.20)
         self.hp = self.max_hp
+        self.exp = 0
+        self.exp_to_next = 20 + self.level * 15
         # Animation
         self.anim_state = "idle"
         self.anim_timer = 0
@@ -110,10 +112,28 @@ class BaseEnemy:
         # Trạng thái
         self.is_alive_flag = True
 
+    def gain_exp(self, amount):
+        """Cộng EXP cho quái vật đồng hành, tự động lên cấp và nâng stats."""
+        self.exp += amount
+        leveled = False
+        while self.exp >= self.exp_to_next:
+            self.exp -= self.exp_to_next
+            self.level += 1
+            old_max = self.max_hp
+            self.max_hp  = _level_scale(self.BASE_HP,  self.level, 0.12)
+            self.atk     = _level_scale(self.BASE_ATK, self.level, 0.10)
+            self.exp_reward = _level_scale(self.BASE_EXP, self.level, 0.20)
+            self.hp = min(self.hp + (self.max_hp - old_max), self.max_hp)
+            self.exp_to_next = 20 + self.level * 15
+            leveled = True
+        return leveled
+
     def is_alive(self):
         return self.hp > 0
 
     def take_damage(self, dmg):
+        if getattr(self, 'is_guarding', False):
+            dmg = max(1, int(dmg * 2 / 3))
         self.hp = max(0, self.hp - dmg)
         return dmg
 

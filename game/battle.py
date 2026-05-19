@@ -61,8 +61,9 @@ ALLY_BASE_Y = 320
 
 
 class BattleSystem:
-    def __init__(self, rabbit, enemies, text_renderer, renderers, is_boss=False):
-        self.rabbit      = rabbit
+    def __init__(self, party, enemies, text_renderer, renderers, is_boss=False):
+        self.party       = party
+        self.rabbit      = next((m for m in party if isinstance(m, Rabbit)), party[0])
         self.enemies     = enemies          # list BaseEnemy
         self.text_ren    = text_renderer
         self.renderers   = renderers        # dict: kind -> SpriteRenderer
@@ -74,12 +75,20 @@ class BattleSystem:
             e.base_x = sx; e.draw_x = sx
             e.base_y = sy; e.draw_y = sy
 
-        # Vị trí thỏ (đứng yên bên phải)
-        rabbit.draw_x = ALLY_BASE_X
-        rabbit.draw_y = ALLY_BASE_Y
+        # Vị trí cho đồng minh (phe ta)
+        self.battle_party = list(self.party[:3])
+        ALLY_SLOTS = [
+            (250, 320),   # slot 0
+            (110, 260),   # slot 1
+            (290, 210),   # slot 2
+        ]
+        for i, ally in enumerate(self.battle_party):
+            sx, sy = ALLY_SLOTS[min(i, len(ALLY_SLOTS)-1)]
+            ally.base_x = sx; ally.draw_x = sx
+            ally.base_y = sy; ally.draw_y = sy
 
         self.state       = BS_PLAYER_SELECT
-        self.selected_cmd = 0   # 0=Attack,1=Ranged,2=Guard,3=Run
+        self.selected_cmd = 0   
         self.selected_target = 0
 
         self.floats      = []   # FloatingText[]
@@ -95,7 +104,17 @@ class BattleSystem:
         self.exp_gained   = 0
         self.leveled_up   = False
 
-        self.rabbit.reset_battle_state()
+        # Reset trạng thái tất cả quái vật đồng minh
+        for ally in self.party:
+            if isinstance(ally, Rabbit):
+                ally.reset_battle_state()
+            else:
+                ally.is_guarding = False
+                if hasattr(ally, 'smoke_miss_bonus'):
+                    ally.smoke_miss_bonus = False
+                if hasattr(ally, 'poisoned'):
+                    ally.poisoned = False
+                    ally.poison_stacks = 0
 
         # Fox: lên kế hoạch trước
         for e in self.enemies:
@@ -103,6 +122,12 @@ class BattleSystem:
                 e.plan_turn()
 
         self.result_timer = 0
+        self.ally_queue = []
+        self.current_actor = self.rabbit
+        self.actor_commands = ["Attack", "Ranged Attack", "Guard", "Item", "Run"]
+        
+        # Bắt đầu lượt của phe ta
+        self._start_ally_turn()
 
     # ── Helpers ─────────────────────────────────────────────────────────────
     def _living_enemies(self):
@@ -114,9 +139,44 @@ class BattleSystem:
     def _push_msg(self, msg):
         self.msg_log.push(msg)
 
+    # ── Tốc Độ Lượt Đi Phe Ta ──────────────────────────────────────────────────
+    def _start_ally_turn(self):
+        """Khởi tạo vòng mới, sắp xếp đồng minh sống theo thứ tự Rabbit -> Bee -> Slime."""
+        def get_ally_speed_key(entity):
+            if isinstance(entity, Rabbit):
+                type_order = 0
+            elif entity.KIND == "bee":
+                type_order = 1
+            elif entity.KIND == "slime":
+                type_order = 2
+            else:
+                type_order = 9
+            return (type_order, -entity.level)
+
+        living_allies = [m for m in self.battle_party if m.is_alive()]
+        self.ally_queue = sorted(living_allies, key=get_ally_speed_key)
+        self._next_ally_action()
+
+    def _next_ally_action(self):
+        """Chuyển sang đồng minh tiếp theo trong hàng đợi."""
+        if not self.ally_queue:
+            # Hết lượt phe ta -> Sang lượt địch
+            self._start_enemy_turn()
+            return
+
+        self.current_actor = self.ally_queue.pop(0)
+        self.current_actor.is_guarding = False  # Reset guard ở đầu lượt của nó
+        self.state = BS_PLAYER_SELECT
+        self.selected_cmd = 0
+
+        if isinstance(self.current_actor, Rabbit):
+            self.actor_commands = ["Attack", "Ranged Attack", "Guard", "Item", "Run"]
+        else:
+            self.actor_commands = ["Attack", "Guard", "Item", "Run"]
+
     # ── Input xử lý ─────────────────────────────────────────────────────────
     def handle_input(self, event):
-        if self.state not in (BS_PLAYER_SELECT, BS_TARGET_SELECT):
+        if self.state not in (BS_PLAYER_SELECT, BS_TARGET_SELECT, "item_select", "catch_target_select"):
             return
 
         living = self._living_enemies()
@@ -125,26 +185,63 @@ class BattleSystem:
 
         if self.state == BS_PLAYER_SELECT:
             if event.type == pg.KEYDOWN:
-                if event.key in (pg.K_LEFT, pg.K_a):
-                    self.selected_cmd = (self.selected_cmd - 1) % 4
-                elif event.key in (pg.K_RIGHT, pg.K_d):
-                    self.selected_cmd = (self.selected_cmd + 1) % 4
-                elif event.key in (pg.K_UP, pg.K_w):
-                    self.selected_cmd = (self.selected_cmd - 2) % 4
-                elif event.key in (pg.K_DOWN, pg.K_s):
-                    self.selected_cmd = (self.selected_cmd + 2) % 4
+                if event.key in (pg.K_UP, pg.K_w, pg.K_LEFT, pg.K_a):
+                    self.selected_cmd = (self.selected_cmd - 1) % len(self.actor_commands)
+                elif event.key in (pg.K_DOWN, pg.K_s, pg.K_RIGHT, pg.K_d):
+                    self.selected_cmd = (self.selected_cmd + 1) % len(self.actor_commands)
                 elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
-                    cmd = self.selected_cmd
-                    if cmd in (0, 1): # Attack hoặc Ranged
-                        if cmd == 1 and self.rabbit.ranged_uses <= 0:
+                    cmd_label = self.actor_commands[self.selected_cmd]
+                    if cmd_label == "Attack":
+                        self.state = BS_TARGET_SELECT
+                        self.selected_target = 0
+                    elif cmd_label == "Ranged Attack":
+                        if isinstance(self.current_actor, Rabbit) and self.current_actor.ranged_uses <= 0:
                             self._push_msg("Hết đạn Ranged!")
                         else:
                             self.state = BS_TARGET_SELECT
-                            self.selected_target = 0  # Bắt đầu chọn từ quái đầu tiên
-                    elif cmd == 2: # Guard
+                            self.selected_target = 0
+                    elif cmd_label == "Guard":
                         self._queue_guard()
-                    elif cmd == 3: # Run
+                    elif cmd_label == "Item":
+                        # Mở hộp chọn item phụ
+                        self.state = "item_select"
+                        self.selected_item_idx = 0
+                        self.item_options = ["Net", "Carrot"]
+                    elif cmd_label == "Run":
                         self._queue_run()
+
+        elif self.state == "item_select":
+            if event.type == pg.KEYDOWN:
+                if event.key in (pg.K_UP, pg.K_w):
+                    self.selected_item_idx = (self.selected_item_idx - 1) % len(self.item_options)
+                elif event.key in (pg.K_DOWN, pg.K_s):
+                    self.selected_item_idx = (self.selected_item_idx + 1) % len(self.item_options)
+                elif event.key in (pg.K_ESCAPE, pg.K_x, pg.K_BACKSPACE):
+                    self.state = BS_PLAYER_SELECT
+                elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
+                    selected_item = self.item_options[self.selected_item_idx]
+                    if selected_item == "Net":
+                        # Đội hình đầy 6 quái
+                        if len(self.party) >= 6:
+                            self._push_msg("Đội hình đã đầy! Không thể bắt thêm.")
+                            self._add_float("Full Party!", self.current_actor.draw_x, self.current_actor.draw_y, COL_ORANGE)
+                        else:
+                            self.state = "catch_target_select"
+                            self.selected_target = 0
+                    elif selected_item == "Carrot":
+                        self._push_msg("Chưa hỗ trợ Carrot hồi máu!")
+
+        elif self.state == "catch_target_select":
+            if event.type == pg.KEYDOWN:
+                if event.key in (pg.K_UP, pg.K_w):
+                    self.selected_target = (self.selected_target - 1) % len(living)
+                elif event.key in (pg.K_DOWN, pg.K_s):
+                    self.selected_target = (self.selected_target + 1) % len(living)
+                elif event.key in (pg.K_ESCAPE, pg.K_x, pg.K_BACKSPACE):
+                    self.state = "item_select"
+                elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
+                    tgt = living[min(self.selected_target, len(living)-1)]
+                    self._queue_catch(tgt)
 
         elif self.state == BS_TARGET_SELECT:
             if event.type == pg.KEYDOWN:
@@ -153,57 +250,90 @@ class BattleSystem:
                 elif event.key in (pg.K_DOWN, pg.K_s):
                     self.selected_target = (self.selected_target + 1) % len(living)
                 elif event.key in (pg.K_ESCAPE, pg.K_x, pg.K_BACKSPACE):
-                    # Hủy chọn, quay về menu chọn lệnh
                     self.state = BS_PLAYER_SELECT
                 elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
-                    # Xác nhận tấn công quái đã chọn
                     tgt = living[min(self.selected_target, len(living)-1)]
-                    if self.selected_cmd == 0:
-                        self._queue_rabbit_attack(tgt, ranged=False)
-                    elif self.selected_cmd == 1:
-                        self._queue_rabbit_attack(tgt, ranged=True)
+                    cmd_label = self.actor_commands[self.selected_cmd]
+                    if cmd_label == "Attack":
+                        self._queue_ally_attack(tgt, ranged=False)
+                    elif cmd_label == "Ranged Attack":
+                        self._queue_ally_attack(tgt, ranged=True)
 
     # ── Queue actions ────────────────────────────────────────────────────────
-    def _queue_rabbit_attack(self, target, ranged=False):
-        self.rabbit.is_guarding = False  # Guard chỉ kéo dài 1 lượt
+    def _queue_ally_attack(self, target, ranged=False):
+        self.current_actor.is_guarding = False  # Guard chỉ kéo dài 1 lượt
         self.state = BS_PLAYER_ANIM
         self.anim_timer = 0
 
         if ranged:
-            self.rabbit.ranged_uses -= 1
-            miss_c = MISS_CHANCE_RANGED + (0.25 if self.rabbit.smoke_miss_bonus else 0)
+            if isinstance(self.current_actor, Rabbit):
+                self.current_actor.ranged_uses -= 1
+            miss_c = MISS_CHANCE_RANGED + (0.25 if getattr(self.current_actor, 'smoke_miss_bonus', False) else 0)
             crit_c = CRIT_CHANCE_RANGED
         else:
-            miss_c = MISS_CHANCE + (0.25 if self.rabbit.smoke_miss_bonus else 0)
+            miss_c = MISS_CHANCE + (0.25 if getattr(self.current_actor, 'smoke_miss_bonus', False) else 0)
             crit_c = CRIT_CHANCE
 
-        dmg, is_crit, is_miss = calc_attack_damage(self.rabbit.atk, miss_c, crit_c)
+        dmg, is_crit, is_miss = calc_attack_damage(self.current_actor.atk, miss_c, crit_c)
 
         # Lưu vào anim_data để animation xử lý
         self.anim_data = {
-            "type": "rabbit_atk",
+            "type": "ally_atk",
+            "actor": self.current_actor,
             "ranged": ranged,
             "target": target,
             "dmg": dmg,
             "is_crit": is_crit,
             "is_miss": is_miss,
             "phase": 0,      # 0=move, 1=hit, 2=return
-            "start_x": self.rabbit.draw_x,
-            "start_y": self.rabbit.draw_y,
-            "proj_x": float(self.rabbit.draw_x),
-            "proj_y": float(self.rabbit.draw_y),
+            "start_x": self.current_actor.draw_x,
+            "start_y": self.current_actor.draw_y,
+            "proj_x": float(self.current_actor.draw_x),
+            "proj_y": float(self.current_actor.draw_y),
+            "applied": False,
+        }
+
+    def _queue_catch(self, target):
+        """Bắt quái thường, Cáo thất bại không mất lượt."""
+        if target.KIND == "fox":
+            self._push_msg("Không thể bắt Boss Cáo!")
+            self._add_float("Failed!", target.draw_x + 40, target.draw_y, COL_GRAY)
+            self.state = BS_PLAYER_SELECT # quay lại chọn lệnh
+            return
+
+        self.state = BS_PLAYER_ANIM
+        self.anim_timer = 0
+
+        # Máu càng thấp tỷ lệ bắt càng cao. Slime > Bee
+        base_rate = 0.55 if target.KIND == "slime" else 0.35
+        hp_ratio = target.hp / target.max_hp if target.max_hp > 0 else 1.0
+        catch_chance = base_rate * (1.5 - hp_ratio)
+
+        success = random.random() < catch_chance
+
+        self.anim_data = {
+            "type": "catch",
+            "actor": self.current_actor,
+            "target": target,
+            "success": success,
+            "phase": 0,
+            "proj_x": float(self.current_actor.draw_x),
+            "proj_y": float(self.current_actor.draw_y),
             "applied": False,
         }
 
     def _queue_guard(self):
-        self.rabbit.is_guarding = True
-        self._push_msg("Rabbit đang phòng thủ! Sát thương nhận vào giảm 1/3.")
-        self._start_enemy_turn()
+        self.current_actor.is_guarding = True
+        actor_name = "Rabbit" if isinstance(self.current_actor, Rabbit) else self.current_actor.KIND.capitalize()
+        self._push_msg(f"{actor_name} đang phòng thủ! Sát thương nhận vào giảm 1/3.")
+        self._add_float("Guard!", self.current_actor.draw_x, self.current_actor.draw_y, COL_GREEN)
+        self._after_ally_action()
 
     def _queue_run(self):
         living = self._living_enemies()
         if self.is_boss:
             self._push_msg("Không thể bỏ trốn khỏi Boss!")
+            self.state = BS_PLAYER_SELECT
             return
         if len(living) == 1:
             success = True
@@ -215,7 +345,8 @@ class BattleSystem:
             self.state  = BS_WIN
             self._push_msg("Bỏ trốn thành công!")
         else:
-            self._push_msg("Bỏ trốn thất bại! Mất lượt.")
+            self._push_msg("Bỏ trốn thất bại! Mất lượt cả phe ta.")
+            self.ally_queue = [] # xóa hàng đợi đồng minh
             self._start_enemy_turn()
 
     # ── Enemy Turn ───────────────────────────────────────────────────────────
@@ -245,13 +376,21 @@ class BattleSystem:
 
     def _do_enemy_attack(self, enemy):
         self.state = BS_ENEMY_ANIM
+        living_allies = [m for m in self.battle_party if m.is_alive()]
+        if not living_allies:
+            target = self.rabbit
+        else:
+            target = random.choice(living_allies)
+
+        miss_chance = getattr(target, 'get_miss_chance', lambda: MISS_CHANCE)()
         dmg, is_crit, is_miss = calc_attack_damage(
             enemy.atk,
-            miss_chance=self.rabbit.get_miss_chance(),
+            miss_chance=miss_chance,
         )
         self.anim_data = {
             "type": "enemy_atk",
             "enemy": enemy,
+            "target": target,
             "dmg": dmg,
             "is_crit": is_crit,
             "is_miss": is_miss,
@@ -273,28 +412,35 @@ class BattleSystem:
 
     def _end_turn(self):
         """Cuối lượt: xử lý poison, kiểm tra thua."""
-        if self.rabbit.poisoned:
-            pdmg = max(1, int(self.rabbit.max_hp * 0.05 * self.rabbit.poison_stacks))
-            self.rabbit.hp = max(0, self.rabbit.hp - pdmg)
-            self._push_msg(f"Poison gây {pdmg} sát thương!")
-            self._add_float(f"-{pdmg} PSN", self.rabbit.draw_x, self.rabbit.draw_y, COL_PURPLE)
+        living_allies = [m for m in self.battle_party if m.is_alive()]
+        for ally in living_allies:
+            if getattr(ally, 'poisoned', False):
+                pdmg = max(1, int(ally.max_hp * 0.05 * getattr(ally, 'poison_stacks', 1)))
+                ally.hp = max(0, ally.hp - pdmg)
+                ally_name = "Rabbit" if isinstance(ally, Rabbit) else ally.KIND.capitalize()
+                self._push_msg(f"Poison gây {pdmg} sát thương lên {ally_name}!")
+                self._add_float(f"-{pdmg} PSN", ally.draw_x, ally.draw_y, COL_PURPLE)
 
-        if not self.rabbit.is_alive():
+        # Trận đấu kết thúc khi TOÀN BỘ party hết HP
+        all_party_dead = all(m.hp <= 0 for m in self.party)
+        if all_party_dead:
             self.result = "lose"
             self.state  = BS_LOSE
-            self._push_msg("Rabbit đã ngã xuống!")
+            self._push_msg("Cả đội hình đã bị tiêu diệt!")
             return
 
         # Guard chỉ tồn tại 1 lượt địch → reset
-        self.rabbit.is_guarding = False
+        for ally in self.battle_party:
+            if hasattr(ally, 'is_guarding'):
+                ally.is_guarding = False
 
         # Fox lên kế hoạch cho lượt tiếp theo
         for e in self._living_enemies():
             if isinstance(e, Fox):
                 e.plan_turn()
 
-        # Thỏ luôn hành động trước trong lượt mới
-        self.state = BS_PLAYER_SELECT
+        # Bắt đầu lượt mới phe ta
+        self._start_ally_turn()
 
     # ── Update animation ─────────────────────────────────────────────────────
     def update(self):
@@ -304,17 +450,18 @@ class BattleSystem:
         self.floats = [f for f in self.floats if not f.is_dead()]
 
         if self.state == BS_PLAYER_ANIM:
-            self._update_rabbit_anim()
+            self._update_ally_anim()
         elif self.state == BS_ENEMY_ANIM:
             self._update_enemy_anim()
         elif self.state in (BS_WIN, BS_LOSE):
             self.result_timer += 1
 
-    def _update_rabbit_anim(self):
+    def _update_ally_anim(self):
         d = self.anim_data
         self.anim_timer += 1
+        actor = d["actor"]
 
-        if d["type"] == "rabbit_atk":
+        if d["type"] == "ally_atk":
             tgt = d["target"]
             if not d["ranged"]:
                 tx, ty = tgt.draw_x - 60, tgt.draw_y + 40  # Đứng bên trái quái
@@ -325,40 +472,40 @@ class BattleSystem:
                 # Melee: di chuyển đến địch rồi quay về
                 if d["phase"] == 0:
                     # Di chuyển đến mục tiêu
-                    dx = tx - self.rabbit.draw_x
-                    dy = ty - self.rabbit.draw_y
+                    dx = tx - actor.draw_x
+                    dy = ty - actor.draw_y
                     dist = math.hypot(dx, dy)
                     spd = 12
                     if dist < spd:
-                        self.rabbit.draw_x = tx
-                        self.rabbit.draw_y = ty
+                        actor.draw_x = tx
+                        actor.draw_y = ty
                         d["phase"] = 1
                         self.anim_timer = 0
                     else:
-                        self.rabbit.draw_x += dx / dist * spd
-                        self.rabbit.draw_y += dy / dist * spd
+                        actor.draw_x += dx / dist * spd
+                        actor.draw_y += dy / dist * spd
                 elif d["phase"] == 1:
                     # Hit frame
                     if not d["applied"]:
                         d["applied"] = True
-                        self._apply_rabbit_hit(d)
+                        self._apply_ally_hit(d)
                     if self.anim_timer > 15:
                         d["phase"] = 2
                         self.anim_timer = 0
                 elif d["phase"] == 2:
                     # Quay về
-                    bx, by = ALLY_BASE_X, ALLY_BASE_Y
-                    dx = bx - self.rabbit.draw_x
-                    dy = by - self.rabbit.draw_y
+                    bx, by = d["start_x"], d["start_y"]
+                    dx = bx - actor.draw_x
+                    dy = by - actor.draw_y
                     dist = math.hypot(dx, dy)
                     spd = 12
                     if dist < spd:
-                        self.rabbit.draw_x = bx
-                        self.rabbit.draw_y = by
-                        self._after_rabbit_action()
+                        actor.draw_x = bx
+                        actor.draw_y = by
+                        self._after_ally_action()
                     else:
-                        self.rabbit.draw_x += dx / dist * spd
-                        self.rabbit.draw_y += dy / dist * spd
+                        actor.draw_x += dx / dist * spd
+                        actor.draw_y += dy / dist * spd
             else:
                 # Ranged: bắn projectile
                 if d["phase"] == 0:
@@ -379,44 +526,110 @@ class BattleSystem:
                 elif d["phase"] == 1:
                     if not d["applied"]:
                         d["applied"] = True
-                        self._apply_rabbit_hit(d)
+                        self._apply_ally_hit(d)
                     if self.anim_timer > 20:
-                        self._after_rabbit_action()
+                        self._after_ally_action()
 
-    def _apply_rabbit_hit(self, d):
+        elif d["type"] == "catch":
+            tgt = d["target"]
+            tx, ty = tgt.draw_x + 30, tgt.draw_y + 40
+
+            if d["phase"] == 0:
+                # Projectile net bay
+                px, py = d["proj_x"], d["proj_y"]
+                dx = tx - px
+                dy = ty - py
+                dist = math.hypot(dx, dy)
+                spd = 18
+                if dist < spd:
+                    d["proj_x"] = tx
+                    d["proj_y"] = ty
+                    d["phase"] = 1
+                    self.anim_timer = 0
+                else:
+                    d["proj_x"] += dx / dist * spd
+                    d["proj_y"] += dy / dist * spd
+            elif d["phase"] == 1:
+                if not d["applied"]:
+                    d["applied"] = True
+                    self._apply_catch_hit(d)
+                if self.anim_timer > 20:
+                    self._after_ally_action()
+
+    def _apply_ally_hit(self, d):
+        actor = d["actor"]
         tgt = d["target"]
         if not tgt.is_alive():
             return
+        actor_name = "Rabbit" if isinstance(actor, Rabbit) else actor.KIND.capitalize()
         if d["is_miss"]:
-            self._push_msg(f"Rabbit tấn công... MISS!")
+            self._push_msg(f"{actor_name} tấn công... MISS!")
             self._add_float("Miss", tgt.draw_x + 40, tgt.draw_y, COL_GRAY, 28)
         else:
             actual = tgt.take_damage(d["dmg"])
             prefix = "CRIT! " if d["is_crit"] else ""
-            self._push_msg(f"{prefix}Rabbit gây {actual} sát thương lên {tgt.KIND.capitalize()}!")
+            self._push_msg(f"{prefix}{actor_name} gây {actual} sát thương lên {tgt.KIND.capitalize()}!")
             col = COL_YELLOW if d["is_crit"] else COL_RED
             self._add_float(f"-{actual}", tgt.draw_x + 40, tgt.draw_y, col, 28)
             if not tgt.is_alive():
                 self._push_msg(f"{tgt.KIND.capitalize()} đã bị đánh bại!")
 
-    def _after_rabbit_action(self):
-        self.rabbit.draw_x = ALLY_BASE_X
-        self.rabbit.draw_y = ALLY_BASE_Y
+    def _apply_catch_hit(self, d):
+        tgt = d["target"]
+        if not tgt.is_alive():
+            return
+
+        success = d["success"]
+        if success:
+            self._push_msg(f"Đã bắt thành công {tgt.KIND.capitalize()}!")
+            self._add_float("CAUGHT!", tgt.draw_x + 40, tgt.draw_y, COL_GREEN, 28)
+
+            prev_hp = tgt.hp
+            tgt.hp = 0  # xóa khỏi trận đấu
+
+            # Thêm quái vật vào party
+            from game.combat_entities import Slime, Bee
+            if tgt.KIND == "slime":
+                new_member = Slime(tgt.level)
+            else:
+                new_member = Bee(tgt.level)
+
+            new_member.hp = max(1, prev_hp) # Giữ nguyên HP khi bắt
+            self.party.append(new_member)
+        else:
+            self._push_msg(f"Bắt thất bại {tgt.KIND.capitalize()}!")
+            self._add_float("Failed!", tgt.draw_x + 40, tgt.draw_y, COL_GRAY, 28)
+
+    def _after_ally_action(self):
+        ALLY_SLOTS = [
+            (250, 320),
+            (110, 260),
+            (290, 210),
+        ]
+        for i, ally in enumerate(self.battle_party):
+            if not ally.is_alive():
+                continue
+            sx, sy = ALLY_SLOTS[min(i, len(ALLY_SLOTS)-1)]
+            ally.draw_x = sx
+            ally.draw_y = sy
+
         # Kiểm tra còn địch không
         if not self._living_enemies():
             self._resolve_win()
         else:
-            self._start_enemy_turn()
+            # Di chuyển sang đồng minh tiếp theo
+            self._next_ally_action()
 
     def _resolve_win(self):
         total_exp = sum(e.exp_reward for e in self.enemies)
         self.exp_gained = total_exp
-        self.leveled_up = self.rabbit.gain_exp(total_exp)
+        rabbit = next((m for m in self.party if isinstance(m, Rabbit)), self.party[0])
+        self.leveled_up = rabbit.gain_exp(total_exp)
         self.result = "win"
         self.state  = BS_WIN
         self._push_msg(f"Chiến thắng! +{total_exp} EXP")
         if self.leveled_up:
-            self._push_msg(f"Rabbit lên Lv.{self.rabbit.level}!")
+            self._push_msg(f"Rabbit lên Lv.{rabbit.level}!")
 
     def _update_enemy_anim(self):
         d = self.anim_data
@@ -424,6 +637,8 @@ class BattleSystem:
 
         if d["type"] == "enemy_atk":
             enemy = d["enemy"]
+            target = d["target"]
+            target_name = "Rabbit" if isinstance(target, Rabbit) else target.KIND.capitalize()
             if d["phase"] == 0:
                 # Rung lắc địch rồi hit
                 if self.anim_timer < 20:
@@ -435,12 +650,12 @@ class BattleSystem:
                         d["applied"] = True
                         if d["is_miss"]:
                             self._push_msg(f"{enemy.KIND.capitalize()} tấn công... MISS!")
-                            self._add_float("Miss", self.rabbit.draw_x, self.rabbit.draw_y, COL_GRAY)
+                            self._add_float("Miss", target.draw_x, target.draw_y, COL_GRAY)
                         else:
-                            actual = self.rabbit.take_damage(d["dmg"])
+                            actual = target.take_damage(d["dmg"])
                             prefix = "CRIT! " if d["is_crit"] else ""
-                            self._push_msg(f"{prefix}{enemy.KIND.capitalize()} gây {actual} damage lên Rabbit!")
-                            self._add_float(f"-{actual}", self.rabbit.draw_x, self.rabbit.draw_y, COL_RED)
+                            self._push_msg(f"{prefix}{enemy.KIND.capitalize()} gây {actual} damage lên {target_name}!")
+                            self._add_float(f"-{actual}", target.draw_x, target.draw_y, COL_RED)
                     if self.anim_timer > 35:
                         enemy.draw_x = enemy.base_x
                         self._check_rabbit_alive_then_next()
@@ -461,16 +676,24 @@ class BattleSystem:
 
     def _apply_fox_action(self, fox, act):
         atype = act["type"]
+        
+        target = self.rabbit if self.rabbit.is_alive() else None
+        if target is None:
+            living_allies = [m for m in self.battle_party if m.is_alive()]
+            target = random.choice(living_allies) if living_allies else self.rabbit
+
+        target_name = "Rabbit" if isinstance(target, Rabbit) else target.KIND.capitalize()
+
         if atype == "power_charge":
             self._push_msg("Cáo đang tích tụ năng lượng! (Power Charge)")
             return
 
         if atype == "smoke":
-            self._push_msg("Cáo ném lựu đạn khói! Rabbit bị ảnh hưởng.")
-            self.rabbit.smoke_miss_bonus = True
-            self.rabbit.poisoned = True
-            self.rabbit.poison_stacks += 1
-            self._add_float("SMOKE!", self.rabbit.draw_x, self.rabbit.draw_y + 30, COL_GRAY, 24)
+            self._push_msg(f"Cáo ném lựu đạn khói! {target_name} bị ảnh hưởng.")
+            target.smoke_miss_bonus = True
+            target.poisoned = True
+            target.poison_stacks = getattr(target, 'poison_stacks', 0) + 1
+            self._add_float("SMOKE!", target.draw_x, target.draw_y + 30, COL_GRAY, 24)
             return
 
         # kunai
@@ -480,7 +703,7 @@ class BattleSystem:
         if no_miss:
             miss_c = 0.0
         else:
-            miss_c = self.rabbit.get_miss_chance()
+            miss_c = target.get_miss_chance() if hasattr(target, 'get_miss_chance') else MISS_CHANCE
 
         if guaranteed_crit:
             dmg = fox.atk * 2
@@ -490,19 +713,20 @@ class BattleSystem:
             dmg, is_crit, is_miss = calc_attack_damage(fox.atk, miss_c)
 
         if is_miss:
-            self._push_msg("Cáo ném Kunai... MISS!")
-            self._add_float("Miss", self.rabbit.draw_x, self.rabbit.draw_y, COL_GRAY)
+            self._push_msg(f"Cáo ném Kunai... MISS!")
+            self._add_float("Miss", target.draw_x, target.draw_y, COL_GRAY)
         else:
-            actual = self.rabbit.take_damage(dmg)
+            actual = target.take_damage(dmg)
             prefix = "CRIT! " if is_crit else ""
-            self._push_msg(f"{prefix}Cáo ném Kunai gây {actual} damage!")
-            self._add_float(f"-{actual}", self.rabbit.draw_x, self.rabbit.draw_y, COL_ORANGE, 28)
+            self._push_msg(f"{prefix}Cáo ném Kunai gây {actual} damage lên {target_name}!")
+            self._add_float(f"-{actual}", target.draw_x, target.draw_y, COL_ORANGE, 28)
 
     def _check_rabbit_alive_then_next(self):
-        if not self.rabbit.is_alive():
+        all_party_dead = all(m.hp <= 0 for m in self.party)
+        if all_party_dead:
             self.result = "lose"
             self.state  = BS_LOSE
-            self._push_msg("Rabbit đã ngã xuống!")
+            self._push_msg("Cả đội hình đã bị tiêu diệt!")
         else:
             self._next_enemy_action()
 
@@ -521,42 +745,72 @@ class BattleSystem:
                 rend.draw(int(e.draw_x), int(e.draw_y), ew, eh, 0, flip_x=False)
                 draw_enemy_status(e, int(e.draw_x), int(e.draw_y), ew, eh, self.text_ren)
 
-        # Vẽ thỏ
-        rabbit_rend = self.renderers.get("rabbit")
-        if rabbit_rend:
-            rw, rh = 80, 80
-            rabbit_rend.draw(int(self.rabbit.draw_x), int(self.rabbit.draw_y), rw, rh, 0, flip_x=False)
+        # Vẽ đồng minh (phe ta)
+        for i, ally in enumerate(self.battle_party):
+            if not ally.is_alive():
+                continue
+            kind = "rabbit" if isinstance(ally, Rabbit) else ally.KIND
+            rend = self.renderers.get(kind)
+            if rend:
+                aw, ah = (80, 80) if kind == "rabbit" else (90, 90)
+                # Xoay mặt về bên phải đối với các quái đồng minh khác Rabbit
+                flip = True if kind != "rabbit" else False
+                rend.draw(int(ally.draw_x), int(ally.draw_y), aw, ah, 0, flip_x=flip)
 
-        # Vẽ projectile nếu đang Ranged
+        # Vẽ projectile nếu đang Ranged hoặc Catch
         if self.state == BS_PLAYER_ANIM:
             d = self.anim_data
-            if d.get("ranged") and d.get("phase") == 0:
-                self._draw_projectile(int(d["proj_x"]), int(d["proj_y"]))
+            if (d.get("ranged") or d.get("type") == "catch") and d.get("phase") == 0:
+                self._draw_projectile(int(d["proj_x"]), int(d["proj_y"]), is_catch=(d.get("type") == "catch"))
 
-        # UI
-        draw_ally_status(self.rabbit, self.text_ren, 20, 20)
+        # UI: Vẽ panel thông số ở sát góc dưới bên trái khi tới lượt hành động của quái phe ta
+        show_ally = None
+        if self.state in (BS_PLAYER_SELECT, BS_TARGET_SELECT, "item_select", "catch_target_select"):
+            show_ally = self.current_actor
+        elif self.state == BS_PLAYER_ANIM:
+            if isinstance(self.anim_data, dict):
+                show_ally = self.anim_data.get("actor")
+            if not show_ally:
+                show_ally = self.current_actor
 
-        # Command box
-        if self.state in (BS_PLAYER_SELECT, BS_TARGET_SELECT):
+        if show_ally and show_ally.is_alive():
+            draw_ally_status(show_ally, self.text_ren, 20, 20)
+
+        # Command box dọc
+        if self.state in (BS_PLAYER_SELECT, BS_TARGET_SELECT, "item_select", "catch_target_select"):
             tgt_idx = min(self.selected_target, len(living)-1) if living else 0
-            draw_command_box(self.selected_cmd, "Rabbit",
-                            self.text_ren, self.rabbit.ranged_uses,
-                            enabled=(self.state == BS_PLAYER_SELECT))
+            actor_name = "Rabbit" if isinstance(self.current_actor, Rabbit) else self.current_actor.KIND.capitalize()
             
-            # Chỉ vẽ viền Highlight mục tiêu và dòng hướng dẫn khi ở trạng thái chọn mục tiêu
-            if self.state == BS_TARGET_SELECT and living:
+            draw_command_box(self.selected_cmd, actor_name,
+                             self.text_ren, getattr(self.current_actor, 'ranged_uses', 0),
+                             enabled=(self.state == BS_PLAYER_SELECT),
+                             commands=self.actor_commands)
+            
+            # Vẽ Item Submenu nếu đang chọn Item hoặc ném Net
+            if self.state in ("item_select", "catch_target_select"):
+                from game.ui import draw_item_submenu
+                draw_item_submenu(self.selected_item_idx, self.item_options, self.text_ren)
+
+            # Chỉ vẽ viền Highlight mục tiêu và dòng hướng dẫn khi ở trạng thái chọn mục tiêu hoặc ném Net
+            if self.state in (BS_TARGET_SELECT, "catch_target_select") and living:
                 te = living[tgt_idx]
                 draw_rect_outline(int(te.draw_x)-4, int(te.draw_y)-4, 98, 98, (255, 220, 0), 3)
-                self.text_ren.draw_text("W/S hoặc Mũi tên Lên/Xuống: Chọn quái  |  Enter/Z: Tấn công  |  Esc: Quay lại",
+                self.text_ren.draw_text("W/S hoặc Mũi tên Lên/Xuống: Chọn quái  |  Enter/Z: Xác nhận  |  Esc: Quay lại",
                                         SCREEN_WIDTH//2, SCREEN_HEIGHT - 18, size=14,
                                         color=(240, 240, 160), center_x=True)
             elif self.state == BS_PLAYER_SELECT:
                 self.text_ren.draw_text("WASD / Phím mũi tên: Chọn lệnh  |  Enter/Z/Space: Xác nhận",
                                         SCREEN_WIDTH//2, SCREEN_HEIGHT - 18, size=14,
                                         color=(160, 180, 160), center_x=True)
+            elif self.state == "item_select":
+                self.text_ren.draw_text("W/S hoặc Mũi tên: Chọn vật phẩm  |  Enter/Z: Xác nhận  |  Esc: Quay lại",
+                                        SCREEN_WIDTH//2, SCREEN_HEIGHT - 18, size=14,
+                                        color=(160, 180, 160), center_x=True)
         else:
-            draw_command_box(self.selected_cmd, "Rabbit",
-                            self.text_ren, self.rabbit.ranged_uses, enabled=False)
+            actor_name = "Rabbit" if isinstance(self.current_actor, Rabbit) else self.current_actor.KIND.capitalize()
+            draw_command_box(self.selected_cmd, actor_name,
+                             self.text_ren, getattr(self.current_actor, 'ranged_uses', 0), enabled=False,
+                             commands=self.actor_commands)
 
         # Floating texts
         for f in self.floats:
@@ -571,10 +825,14 @@ class BattleSystem:
         elif self.state == BS_LOSE and self.result_timer > 30:
             self._draw_result_banner()
 
-    def _draw_projectile(self, px, py):
+    def _draw_projectile(self, px, py, is_catch=False):
         glDisable(GL_TEXTURE_2D)
-        glColor3f(1.0, 0.9, 0.2)
-        glPointSize(10)
+        if is_catch:
+            glColor3f(0.5, 0.2, 0.8) # Net màu tím
+            glPointSize(14)
+        else:
+            glColor3f(1.0, 0.9, 0.2)
+            glPointSize(10)
         glBegin(GL_POINTS)
         glVertex2f(px, py)
         glEnd()
@@ -584,11 +842,12 @@ class BattleSystem:
     def _draw_result_banner(self):
         from game.ui import draw_panel
         draw_panel(SCREEN_WIDTH//2 - 200, SCREEN_HEIGHT//2 - 60, 400, 120, 230)
+        rabbit = next((m for m in self.party if isinstance(m, Rabbit)), self.party[0])
         if self.result == "win":
             self.text_ren.draw_text("CHIẾN THẮNG!", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 20,
                                     size=48, color=(80, 255, 80), center_x=True)
             if self.leveled_up:
-                self.text_ren.draw_text(f"Level UP! → Lv.{self.rabbit.level}",
+                self.text_ren.draw_text(f"Level UP! → Lv.{rabbit.level}",
                                         SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 20,
                                         size=26, color=(240, 210, 50), center_x=True)
         elif self.result == "lose":

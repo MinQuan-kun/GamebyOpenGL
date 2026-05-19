@@ -105,9 +105,10 @@ def main():
     }
 
     def new_game():
-        return OverworldPlayer(col=14, row=18), Rabbit()
+        r = Rabbit()
+        return OverworldPlayer(col=14, row=18), r, [r]
 
-    ow_player, rabbit = new_game()
+    ow_player, rabbit, party = new_game()
     state        = ST_TITLE
     battle_sys   = None
     bush_cd      = 0   # cooldown bụi cỏ
@@ -116,6 +117,11 @@ def main():
     ow_menu_active = False
     ow_menu_selected = 0
     ow_menu_options = ["ITEM", "PARTY", "EXIT"]
+
+    # Party menu state variables
+    ST_PARTY_MENU = 5
+    party_selected_idx = 0
+    party_swap_idx = None
 
     clock = pg.time.Clock()
 
@@ -134,7 +140,7 @@ def main():
             # ── GAMEOVER / WIN ──────────────────────────────────────────
             elif state in (ST_GAMEOVER, ST_WIN):
                 if event.type == pg.KEYDOWN and event.key == pg.K_RETURN:
-                    ow_player, rabbit = new_game()
+                    ow_player, rabbit, party = new_game()
                     boss_defeated = False
                     bush_cd = 0
                     state = ST_OVERWORLD
@@ -159,8 +165,34 @@ def main():
                             elif sel_opt == "ITEM":
                                 print("Chức năng ITEM sẽ được thực hiện trong tương lai.")
                             elif sel_opt == "PARTY":
-                                print("Chức năng PARTY sẽ được thực hiện trong tương lai.")
+                                state = ST_PARTY_MENU
+                                party_selected_idx = 0
+                                party_swap_idx = None
+                                ow_menu_active = False
 
+            # ── PARTY MENU ──────────────────────────────────────────────
+            elif state == ST_PARTY_MENU:
+                if event.type == pg.KEYDOWN:
+                    if event.key in (pg.K_ESCAPE, pg.K_x):
+                        if party_swap_idx is not None:
+                            party_swap_idx = None
+                        else:
+                            state = ST_OVERWORLD
+                            ow_menu_active = True
+                    elif event.key in (pg.K_UP, pg.K_w):
+                        party_selected_idx = (party_selected_idx - 1) % 6
+                    elif event.key in (pg.K_DOWN, pg.K_s):
+                        party_selected_idx = (party_selected_idx + 1) % 6
+                    elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
+                        if party_swap_idx is None:
+                            if party_selected_idx < len(party):
+                                party_swap_idx = party_selected_idx
+                        else:
+                            if party_selected_idx < len(party):
+                                idx1, idx2 = party_swap_idx, party_selected_idx
+                                party[idx1], party[idx2] = party[idx2], party[idx1]
+                                rabbit = next((m for m in party if isinstance(m, Rabbit)), party[0])
+                            party_swap_idx = None
 
             # ── BATTLE ──────────────────────────────────────────────────
             elif state == ST_BATTLE and battle_sys is not None:
@@ -175,7 +207,7 @@ def main():
                         boss_defeated = True
                     else:
                         # win thường hoặc run → về overworld
-                        if rabbit.hp <= 0:
+                        if all(m.hp <= 0 for m in party):
                             state = ST_GAMEOVER
                         else:
                             state = ST_OVERWORLD
@@ -219,21 +251,21 @@ def main():
                 getattr(ow_player, 'last_battle_tile', None) is None):
                 # Trigger encounter
                 if cur_tile == T_BOSS and not boss_defeated:
-                    boss_lv = max(rabbit.level, rabbit.level)
+                    boss_lv = max(1, rabbit.level)
                     fox = Fox(boss_lv)
-                    battle_sys = BattleSystem(rabbit, [fox], text_ren, renderers, is_boss=True)
+                    battle_sys = BattleSystem(party, [fox], text_ren, renderers, is_boss=True)
                     state = ST_BATTLE
                     bush_cd = BUSH_COOLDOWN
                     ow_menu_active = False
                 elif cur_tile == T_BUSH:
                     enemies = spawn_bush1_enemies(rabbit.level)
-                    battle_sys = BattleSystem(rabbit, enemies, text_ren, renderers, is_boss=False)
+                    battle_sys = BattleSystem(party, enemies, text_ren, renderers, is_boss=False)
                     state = ST_BATTLE
                     bush_cd = BUSH_COOLDOWN
                     ow_menu_active = False
                 elif cur_tile == T_BUSH2:
                     enemies = spawn_bush2_enemies(rabbit.level)
-                    battle_sys = BattleSystem(rabbit, enemies, text_ren, renderers, is_boss=False)
+                    battle_sys = BattleSystem(party, enemies, text_ren, renderers, is_boss=False)
                     state = ST_BATTLE
                     bush_cd = BUSH_COOLDOWN
                     ow_menu_active = False
@@ -252,6 +284,13 @@ def main():
             if boss_defeated:
                 text_ren.draw_text("Boss đã bị đánh bại!", SCREEN_WIDTH//2, SCREEN_HEIGHT - 22,
                                    size=16, color=(220, 200, 80), center_x=True)
+
+        elif state == ST_PARTY_MENU:
+            # Vẽ nền overworld phía sau
+            draw_overworld(ow_player, text_ren, renderers=renderers)
+            # Vẽ Party menu Pokemon đè lên trên
+            from game.ui import draw_pokemon_party_menu
+            draw_pokemon_party_menu(party_selected_idx, party, text_ren, swap_idx=party_swap_idx)
 
         elif state == ST_BATTLE and battle_sys is not None:
             battle_sys.update()
