@@ -99,10 +99,11 @@ def main():
         "slime":  safe_renderer("assets/enemies/Enemy.png", 2, 4),
         "bee":    safe_renderer("assets/enemies/Enemy.png", 2, 4),
         "fox":    safe_renderer("assets/enemies/Enemy.png", 2, 4),
+        "grass":  safe_renderer("assets/newassets/grass.png", 1, 1),
     }
 
     def new_game():
-        return OverworldPlayer(col=2, row=10), Rabbit()
+        return OverworldPlayer(col=14, row=18), Rabbit()
 
     ow_player, rabbit = new_game()
     state        = ST_TITLE
@@ -206,7 +207,7 @@ def main():
                     state = ST_BATTLE
                     bush_cd = BUSH_COOLDOWN
 
-            draw_overworld(ow_player, text_ren)
+            draw_overworld(ow_player, text_ren, renderers=renderers)
 
             # Mini HUD rabbit
             text_ren.draw_text(
