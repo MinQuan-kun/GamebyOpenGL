@@ -142,6 +142,20 @@ class BattleSystem:
     def _push_msg(self, msg):
         self.msg_log.push(msg)
 
+    def _play_anim(self, entity, state, fallback=None):
+        """Chạy animation nếu entity có animation đó. Fallback dùng khi state chưa được mapping."""
+        if not hasattr(entity, "set_anim") or not hasattr(entity, "animations"):
+            return
+
+        animations = getattr(entity, "animations", None)
+        if not animations:
+            return
+
+        if state in animations:
+            entity.set_anim(state)
+        elif fallback and fallback in animations:
+            entity.set_anim(fallback)
+
     # ── Tốc Độ Lượt Đi Phe Ta ──────────────────────────────────────────────────
     def _start_ally_turn(self):
         """Khởi tạo vòng mới, sắp xếp đồng minh sống theo thứ tự Rabbit -> Bee -> Slime."""
@@ -308,6 +322,12 @@ class BattleSystem:
         self.state = BS_PLAYER_ANIM
         self.anim_timer = 0
 
+        # Animation Attack / Ranged cho phe ta
+        if ranged:
+            self._play_anim(self.current_actor, "ranged", fallback="attack")
+        else:
+            self._play_anim(self.current_actor, "attack")
+
         if ranged:
             if isinstance(self.current_actor, Rabbit):
                 self.current_actor.ranged_uses -= 1
@@ -319,7 +339,10 @@ class BattleSystem:
 
         dmg, is_crit, is_miss = calc_attack_damage(self.current_actor.atk, miss_c, crit_c)
 
-        # Lưu vào anim_data để animation xử lý
+        # Vị trí xuất projectile từ nhân vật
+        proj_offset_x = 115 if isinstance(self.current_actor, Rabbit) else 70
+        proj_offset_y = 85 if isinstance(self.current_actor, Rabbit) else 55
+
         self.anim_data = {
             "type": "ally_atk",
             "actor": self.current_actor,
@@ -328,30 +351,33 @@ class BattleSystem:
             "dmg": dmg,
             "is_crit": is_crit,
             "is_miss": is_miss,
-            "phase": 0,      # 0=move, 1=hit, 2=return
+            "phase": 0,      # 0=move/fly, 1=hit, 2=return
             "start_x": self.current_actor.draw_x,
             "start_y": self.current_actor.draw_y,
-            "proj_x": float(self.current_actor.draw_x),
-            "proj_y": float(self.current_actor.draw_y),
+            "proj_x": float(self.current_actor.draw_x + proj_offset_x),
+            "proj_y": float(self.current_actor.draw_y + proj_offset_y),
             "applied": False,
         }
+
 
     def _queue_catch(self, target):
         """Bắt quái thường, Cáo thất bại không mất lượt."""
         if target.KIND == "fox":
             self._push_msg("Cannot catch Boss Fox!")
             self._add_float("Failed!", target.draw_x + 40, target.draw_y, COL_GRAY)
-            self.state = BS_PLAYER_SELECT # quay lại chọn lệnh
+            self.state = BS_PLAYER_SELECT
             return
 
         self.state = BS_PLAYER_ANIM
         self.anim_timer = 0
 
+        # Animation dùng lưới. Nếu Rabbit chưa có mapping "net", fallback sang "ranged".
+        self._play_anim(self.current_actor, "net", fallback="ranged")
+
         # Máu càng thấp tỷ lệ bắt càng cao. Slime > Bee
         base_rate = 0.55 if target.KIND == "slime" else 0.35
         hp_ratio = target.hp / target.max_hp if target.max_hp > 0 else 1.0
         catch_chance = base_rate * (1.5 - hp_ratio)
-
         success = random.random() < catch_chance
 
         self.anim_data = {
@@ -360,10 +386,11 @@ class BattleSystem:
             "target": target,
             "success": success,
             "phase": 0,
-            "proj_x": float(self.current_actor.draw_x),
-            "proj_y": float(self.current_actor.draw_y),
+            "proj_x": float(self.current_actor.draw_x + 115),
+            "proj_y": float(self.current_actor.draw_y + 85),
             "applied": False,
         }
+
 
     def _queue_revive(self, target):
         self.state = BS_PLAYER_ANIM
@@ -379,6 +406,10 @@ class BattleSystem:
     def _queue_heal(self, target):
         self.state = BS_PLAYER_ANIM
         self.anim_timer = 0
+
+        # Animation hồi máu khi dùng Carrot.
+        self._play_anim(target, "heal", fallback="idle")
+
         self.anim_data = {
             "type": "heal",
             "actor": self.current_actor,
@@ -387,12 +418,16 @@ class BattleSystem:
             "applied": False,
         }
 
+
     def _queue_guard(self):
         self.current_actor.is_guarding = True
+        self._play_anim(self.current_actor, "guard", fallback="idle")
+
         actor_name = "Rabbit" if isinstance(self.current_actor, Rabbit) else self.current_actor.KIND.capitalize()
         self._push_msg(f"{actor_name} is guarding! Damage received reduced by 1/3.")
         self._add_float("Guard!", self.current_actor.draw_x, self.current_actor.draw_y, COL_GREEN)
         self._after_ally_action()
+
 
     def _queue_run(self):
         living = self._living_enemies()
@@ -467,19 +502,47 @@ class BattleSystem:
     def _do_fox_action(self, fox, act):
         self.state = BS_ENEMY_ANIM
         self.anim_timer = 0
+
+        atype = act["type"]
+        if atype == "kunai":
+            self._play_anim(fox, "kunai", fallback="idle")
+            proj_type = "kunai"
+        elif atype == "smoke":
+            self._play_anim(fox, "smoke", fallback="idle")
+            proj_type = "smoke"
+        elif atype == "power_charge":
+            self._play_anim(fox, "power_charge", fallback="idle")
+            proj_type = None
+        else:
+            proj_type = None
+
+        # Chọn mục tiêu để projectile bay tới
+        target = self.rabbit if self.rabbit.is_alive() else None
+        if target is None:
+            living_allies = [m for m in self.battle_party if m.is_alive()]
+            target = random.choice(living_allies) if living_allies else self.rabbit
+
         self.anim_data = {
             "type": "fox_act",
             "fox": fox,
             "act": act,
+            "target": target,
             "phase": 0,
             "applied": False,
+            "proj_type": proj_type,
+            "proj_x": float(fox.draw_x + 80),
+            "proj_y": float(fox.draw_y + 120),
+            "target_x": float(target.draw_x + 65),
+            "target_y": float(target.draw_y + 90),
         }
+
 
     def _end_turn(self):
         """Cuối lượt: xử lý poison, kiểm tra thua."""
         living_allies = [m for m in self.battle_party if m.is_alive()]
         for ally in living_allies:
             if getattr(ally, 'poisoned', False):
+                self._play_anim(ally, "poison", fallback="idle")
                 pdmg = max(1, int(ally.max_hp * 0.05 * getattr(ally, 'poison_stacks', 1)))
                 ally.hp = max(0, ally.hp - pdmg)
                 ally_name = "Rabbit" if isinstance(ally, Rabbit) else ally.KIND.capitalize()
@@ -489,6 +552,8 @@ class BattleSystem:
         # Trận đấu kết thúc khi TOÀN BỘ battle_party hết HP
         all_party_dead = all(m.hp <= 0 for m in self.battle_party)
         if all_party_dead:
+            for ally in self.battle_party:
+                self._play_anim(ally, "dead", fallback="hit")
             self.result = "lose"
             self.state  = BS_LOSE
             self._push_msg("The entire party has been defeated!")
@@ -512,6 +577,16 @@ class BattleSystem:
     # ── Update animation ─────────────────────────────────────────────────────
     def update(self):
         self.msg_log.update()
+
+        # Update animation cho toàn bộ phe ta và phe địch
+        for ally in self.battle_party:
+            if hasattr(ally, "update_animation"):
+                ally.update_animation()
+
+        for e in self.enemies:
+            if hasattr(e, "update_animation"):
+                e.update_animation()
+
         for f in self.floats:
             f.update()
         self.floats = [f for f in self.floats if not f.is_dead()]
@@ -522,6 +597,7 @@ class BattleSystem:
             self._update_enemy_anim()
         elif self.state in (BS_WIN, BS_LOSE):
             self.result_timer += 1
+
 
     def _update_ally_anim(self):
         d = self.anim_data
@@ -631,13 +707,14 @@ class BattleSystem:
                 tgt_name = "Rabbit" if isinstance(tgt, Rabbit) else tgt.KIND.capitalize()
                 self._push_msg(f"Revived {tgt_name}!")
             
-            if self.anim_timer > 20:
+            if self.anim_timer > 32:
                 self._after_ally_action()
 
         elif d["type"] == "heal":
             tgt = d["target"]
             if not d["applied"]:
                 d["applied"] = True
+                self._play_anim(tgt, "heal", fallback="idle")
                 heal_amt = tgt.max_hp // 2
                 tgt.hp = min(tgt.max_hp, tgt.hp + heal_amt)
                 tgt_name = "Rabbit" if isinstance(tgt, Rabbit) else tgt.KIND.capitalize()
@@ -653,18 +730,30 @@ class BattleSystem:
         tgt = d["target"]
         if not tgt.is_alive():
             return
+
         actor_name = "Rabbit" if isinstance(actor, Rabbit) else actor.KIND.capitalize()
+
         if d["is_miss"]:
             self._push_msg(f"{actor_name} attacks... MISS!")
             self._add_float("Miss", tgt.draw_x + 40, tgt.draw_y, COL_GRAY, 28)
         else:
             actual = tgt.take_damage(d["dmg"])
+
+            # Animation bị đánh / chết cho mục tiêu
+            if hasattr(tgt, "set_anim"):
+                if tgt.is_alive():
+                    self._play_anim(tgt, "hit", fallback="idle")
+                else:
+                    self._play_anim(tgt, "dead", fallback="hit")
+
             prefix = "CRIT! " if d["is_crit"] else ""
             self._push_msg(f"{prefix}{actor_name} deals {actual} damage to {tgt.KIND.capitalize()}!")
             col = COL_YELLOW if d["is_crit"] else COL_RED
             self._add_float(f"-{actual}", tgt.draw_x + 40, tgt.draw_y, col, 28)
+
             if not tgt.is_alive():
                 self._push_msg(f"{tgt.KIND.capitalize()} has been defeated!")
+
 
     def _apply_catch_hit(self, d):
         tgt = d["target"]
@@ -700,7 +789,7 @@ class BattleSystem:
             (290, 210),
         ]
         for i, ally in enumerate(self.battle_party):
-            if not ally.is_alive():
+            if not ally.is_alive() and getattr(ally, "anim_state", None) != "dead":
                 continue
             sx, sy = ALLY_SLOTS[min(i, len(ALLY_SLOTS)-1)]
             ally.draw_x = sx
@@ -741,6 +830,7 @@ class BattleSystem:
             enemy = d["enemy"]
             target = d["target"]
             target_name = "Rabbit" if isinstance(target, Rabbit) else target.KIND.capitalize()
+
             if d["phase"] == 0:
                 # Rung lắc địch rồi hit
                 if self.anim_timer < 20:
@@ -755,9 +845,14 @@ class BattleSystem:
                             self._add_float("Miss", target.draw_x, target.draw_y, COL_GRAY)
                         else:
                             actual = target.take_damage(d["dmg"])
+                            self._play_anim(target, "hit", fallback="idle")
+                            if not target.is_alive():
+                                self._play_anim(target, "dead", fallback="hit")
+
                             prefix = "CRIT! " if d["is_crit"] else ""
                             self._push_msg(f"{prefix}{enemy.KIND.capitalize()} deals {actual} damage to {target_name}!")
                             self._add_float(f"-{actual}", target.draw_x, target.draw_y, COL_RED)
+
                     if self.anim_timer > 35:
                         enemy.draw_x = enemy.base_x
                         self._check_rabbit_alive_then_next()
@@ -765,21 +860,50 @@ class BattleSystem:
         elif d["type"] == "fox_act":
             fox = d["fox"]
             act = d["act"]
-            if self.anim_timer < 25:
-                offset = math.sin(self.anim_timer * 0.6) * 10
-                fox.draw_x = fox.base_x + offset
-            else:
-                fox.draw_x = fox.base_x
+
+            if act["type"] == "power_charge":
+                if self.anim_timer > 35:
+                    if not d["applied"]:
+                        d["applied"] = True
+                        self._apply_fox_action(fox, act)
+                    if self.anim_timer > 55:
+                        self._check_rabbit_alive_then_next()
+                return
+
+            # Kunai / Smoke bay đến mục tiêu
+            if d.get("proj_type") in ("kunai", "smoke") and d["phase"] == 0:
+                px, py = d["proj_x"], d["proj_y"]
+                tx, ty = d["target_x"], d["target_y"]
+
+                dx = tx - px
+                dy = ty - py
+                dist = math.hypot(dx, dy)
+                spd = 10
+
+                if dist < spd:
+                    d["proj_x"] = tx
+                    d["proj_y"] = ty
+                    d["phase"] = 1
+                    self.anim_timer = 0
+                else:
+                    d["proj_x"] += dx / dist * spd
+                    d["proj_y"] += dy / dist * spd
+
+            elif d["phase"] == 1:
                 if not d["applied"]:
                     d["applied"] = True
                     self._apply_fox_action(fox, act)
-                if self.anim_timer > 45:
+
+                if self.anim_timer > 25:
                     self._check_rabbit_alive_then_next()
+
 
     def _apply_fox_action(self, fox, act):
         atype = act["type"]
-        
-        target = self.rabbit if self.rabbit.is_alive() else None
+
+        target = self.anim_data.get("target") if isinstance(self.anim_data, dict) else None
+        if target is None or not target.is_alive():
+            target = self.rabbit if self.rabbit.is_alive() else None
         if target is None:
             living_allies = [m for m in self.battle_party if m.is_alive()]
             target = random.choice(living_allies) if living_allies else self.rabbit
@@ -787,14 +911,19 @@ class BattleSystem:
         target_name = "Rabbit" if isinstance(target, Rabbit) else target.KIND.capitalize()
 
         if atype == "power_charge":
+            fox.powered_up_visual = True
+            if hasattr(fox, "powered_up_visual"):
+                fox.powered_up_visual = True
+            self._play_anim(fox, "power_charge", fallback="idle")
             self._push_msg("Fox is gathering energy! (Power Charge)")
             return
-            
+
         if atype == "smoke":
             self._push_msg(f"Fox threw a Smoke Grenade! {target_name} is affected.")
             target.smoke_miss_bonus = True
             target.poisoned = True
             target.poison_stacks = getattr(target, 'poison_stacks', 0) + 1
+            self._play_anim(target, "poison", fallback="hit")
             self._add_float("SMOKE!", target.draw_x, target.draw_y + 30, COL_GRAY, 24)
             return
 
@@ -815,23 +944,36 @@ class BattleSystem:
             dmg, is_crit, is_miss = calc_attack_damage(fox.atk, miss_c)
 
         if is_miss:
-            self._push_msg(f"Fox threw Kunai... MISS!")
+            self._push_msg("Fox threw Kunai... MISS!")
             self._add_float("Miss", target.draw_x, target.draw_y, COL_GRAY)
         else:
             actual = target.take_damage(dmg)
+            self._play_anim(target, "hit", fallback="idle")
+            if not target.is_alive():
+                self._play_anim(target, "dead", fallback="hit")
+
+            if act.get("guaranteed_crit", False) and hasattr(fox, "clear_power_visual"):
+                fox.clear_power_visual()
+
             prefix = "CRIT! " if is_crit else ""
             self._push_msg(f"{prefix}Fox threw Kunai dealing {actual} damage to {target_name}!")
             self._add_float(f"-{actual}", target.draw_x, target.draw_y, COL_ORANGE, 28)
 
+
     def _check_rabbit_alive_then_next(self):
-        self._replenish_battle_party()
         all_party_dead = all(m.hp <= 0 for m in self.battle_party)
+
         if all_party_dead:
+            for ally in self.battle_party:
+                self._play_anim(ally, "dead", fallback="hit")
+
             self.result = "lose"
-            self.state  = BS_LOSE
+            self.state = BS_LOSE
             self._push_msg("The entire party has been defeated!")
-        else:
-            self._next_enemy_action()
+            return
+
+        self._replenish_battle_party()
+        self._next_enemy_action()
 
     def _replenish_battle_party(self):
         living_in_battle = [m for m in self.battle_party if m.is_alive()]
@@ -859,31 +1001,88 @@ class BattleSystem:
         # Vẽ địch
         living = self._living_enemies()
         for i, e in enumerate(self.enemies):
-            if not e.is_alive():
+            if not e.is_alive() and getattr(e, "anim_state", None) != "dead":
                 continue
+
             rend = self.renderers.get(e.KIND)
             if rend:
-                ew, eh = 90, 90
-                rend.draw(int(e.draw_x), int(e.draw_y), ew, eh, 0, flip_x=False)
-                draw_enemy_status(e, int(e.draw_x), int(e.draw_y), ew, eh, self.text_ren)
+                frame = e.get_current_frame() if hasattr(e, "get_current_frame") else 0
+
+                if isinstance(e, Fox):
+                    ew, eh = 300, 300     # scale up Fox
+                    ox, oy = -70, -50
+                    flip = True           # flip Fox hoàn toàn
+                else:
+                    ew, eh = 90, 90
+                    ox, oy = 0, 0
+                    flip = False
+
+                rend.draw(
+                    int(e.draw_x + ox),
+                    int(e.draw_y + oy),
+                    ew,
+                    eh,
+                    frame,
+                    flip_x=flip
+                )
+
+                draw_enemy_status(
+                    e,
+                    int(e.draw_x + ox),
+                    int(e.draw_y + oy),
+                    ew,
+                    eh,
+                    self.text_ren
+                )
 
         # Vẽ đồng minh (phe ta)
         for i, ally in enumerate(self.battle_party):
-            if not ally.is_alive():
+            if not ally.is_alive() and getattr(ally, "anim_state", None) != "dead":
                 continue
-            kind = "rabbit" if isinstance(ally, Rabbit) else ally.KIND
+
+            if isinstance(ally, Rabbit):
+                kind = "rabbit_battle"
+            else:
+                kind = ally.KIND
+
             rend = self.renderers.get(kind)
             if rend:
-                aw, ah = (80, 80) if kind == "rabbit" else (90, 90)
-                # Xoay mặt về bên phải đối với các quái đồng minh khác Rabbit
-                flip = True if kind != "rabbit" else False
-                rend.draw(int(ally.draw_x), int(ally.draw_y), aw, ah, 0, flip_x=flip)
+                if isinstance(ally, Rabbit):
+                    aw, ah = 160, 160
+                    flip = False
+                    frame = ally.get_current_frame() if hasattr(ally, "get_current_frame") else 0
+                else:
+                    aw, ah = 90, 90
+                    flip = True
+                    frame = ally.get_current_frame() if hasattr(ally, "get_current_frame") else 0
+
+                rend.draw(
+                    int(ally.draw_x),
+                    int(ally.draw_y),
+                    aw,
+                    ah,
+                    frame,
+                    flip_x=flip
+                )
 
         # Vẽ projectile nếu đang Ranged hoặc Catch
         if self.state == BS_PLAYER_ANIM:
             d = self.anim_data
             if (d.get("ranged") or d.get("type") == "catch") and d.get("phase") == 0:
-                self._draw_projectile(int(d["proj_x"]), int(d["proj_y"]), is_catch=(d.get("type") == "catch"))
+                self._draw_projectile(
+                    int(d["proj_x"]),
+                    int(d["proj_y"]),
+                    is_catch=(d.get("type") == "catch")
+                )
+
+        # Vẽ projectile của Fox: Kunai / Smoke
+        if self.state == BS_ENEMY_ANIM:
+            d = self.anim_data
+            if d.get("type") == "fox_act" and d.get("phase") == 0:
+                if d.get("proj_type") == "kunai":
+                    self._draw_kunai(int(d["proj_x"]), int(d["proj_y"]))
+                elif d.get("proj_type") == "smoke":
+                    self._draw_smoke_ball(int(d["proj_x"]), int(d["proj_y"]))
 
         # UI: Vẽ panel thông số ở sát góc dưới bên trái khi tới lượt hành động của quái phe ta
         show_ally = None
@@ -902,12 +1101,16 @@ class BattleSystem:
         if self.state in (BS_PLAYER_SELECT, BS_TARGET_SELECT, "item_select", "catch_target_select"):
             tgt_idx = min(self.selected_target, len(living)-1) if living else 0
             actor_name = "Rabbit" if isinstance(self.current_actor, Rabbit) else self.current_actor.KIND.capitalize()
-            
-            draw_command_box(self.selected_cmd, actor_name,
-                             self.text_ren, getattr(self.current_actor, 'ranged_uses', 0),
-                             enabled=(self.state == BS_PLAYER_SELECT),
-                             commands=self.actor_commands)
-            
+
+            draw_command_box(
+                self.selected_cmd,
+                actor_name,
+                self.text_ren,
+                getattr(self.current_actor, 'ranged_uses', 0),
+                enabled=(self.state == BS_PLAYER_SELECT),
+                commands=self.actor_commands
+            )
+
             # Vẽ Item Submenu nếu đang chọn Item hoặc ném Net hoặc Revive hoặc Heal
             if self.state in ("item_select", "catch_target_select", "revive_target_select", "heal_target_select"):
                 from game.ui import draw_item_submenu
@@ -918,31 +1121,55 @@ class BattleSystem:
                     heal_names = [("Rabbit" if isinstance(m, Rabbit) else m.KIND.capitalize()) for m in self.heal_targets]
                     draw_item_submenu(self.selected_target, heal_names, self.text_ren, is_target_select=True)
                 else:
-                    draw_item_submenu(self.selected_item_idx, self.item_options, self.text_ren,
-                                      net_qty=self.inventory.get("Net", 0),
-                                      carrot_qty=self.inventory.get("Carrot", 0),
-                                      revive_qty=self.inventory.get("Revive", 0))
+                    draw_item_submenu(
+                        self.selected_item_idx,
+                        self.item_options,
+                        self.text_ren,
+                        net_qty=self.inventory.get("Net", 0),
+                        carrot_qty=self.inventory.get("Carrot", 0),
+                        revive_qty=self.inventory.get("Revive", 0)
+                    )
 
             # Chỉ vẽ viền Highlight mục tiêu và dòng hướng dẫn khi ở trạng thái chọn mục tiêu hoặc ném Net
             if self.state in (BS_TARGET_SELECT, "catch_target_select") and living:
                 te = living[tgt_idx]
                 draw_rect_outline(int(te.draw_x)-4, int(te.draw_y)-4, 98, 98, (255, 220, 0), 3)
-                self.text_ren.draw_text("W/S or Arrows: Choose target | Enter/Z: Confirm | Esc: Back",
-                                        SCREEN_WIDTH//2, SCREEN_HEIGHT - 18, size=14,
-                                        color=(240, 240, 160), center_x=True)
+                self.text_ren.draw_text(
+                    "W/S or Arrows: Choose target | Enter/Z: Confirm | Esc: Back",
+                    SCREEN_WIDTH//2,
+                    SCREEN_HEIGHT - 18,
+                    size=14,
+                    color=(240, 240, 160),
+                    center_x=True
+                )
             elif self.state == BS_PLAYER_SELECT:
-                self.text_ren.draw_text("WASD / Arrows: Select command | Enter/Z/Space: Confirm",
-                                        SCREEN_WIDTH//2, SCREEN_HEIGHT - 18, size=14,
-                                        color=(160, 180, 160), center_x=True)
+                self.text_ren.draw_text(
+                    "WASD / Arrows: Select command | Enter/Z/Space: Confirm",
+                    SCREEN_WIDTH//2,
+                    SCREEN_HEIGHT - 18,
+                    size=14,
+                    color=(160, 180, 160),
+                    center_x=True
+                )
             elif self.state == "item_select":
-                self.text_ren.draw_text("W/S or Arrows: Select item | Enter/Z: Confirm | Esc: Back",
-                                        SCREEN_WIDTH//2, SCREEN_HEIGHT - 18, size=14,
-                                        color=(160, 180, 160), center_x=True)
+                self.text_ren.draw_text(
+                    "W/S or Arrows: Select item | Enter/Z: Confirm | Esc: Back",
+                    SCREEN_WIDTH//2,
+                    SCREEN_HEIGHT - 18,
+                    size=14,
+                    color=(160, 180, 160),
+                    center_x=True
+                )
         else:
             actor_name = "Rabbit" if isinstance(self.current_actor, Rabbit) else self.current_actor.KIND.capitalize()
-            draw_command_box(self.selected_cmd, actor_name,
-                             self.text_ren, getattr(self.current_actor, 'ranged_uses', 0), enabled=False,
-                             commands=self.actor_commands)
+            draw_command_box(
+                self.selected_cmd,
+                actor_name,
+                self.text_ren,
+                getattr(self.current_actor, 'ranged_uses', 0),
+                enabled=False,
+                commands=self.actor_commands
+            )
 
         # Floating texts
         for f in self.floats:
@@ -957,19 +1184,105 @@ class BattleSystem:
         elif self.state == BS_LOSE and self.result_timer > 30:
             self._draw_result_banner()
 
+
     def _draw_projectile(self, px, py, is_catch=False):
         glDisable(GL_TEXTURE_2D)
+
         if is_catch:
-            glColor3f(0.5, 0.2, 0.8) # Net màu tím
-            glPointSize(14)
+            # Vẽ lưới bắt quái: hình thoi + các đường lưới
+            size = 18
+            glColor3f(0.55, 0.25, 0.85)
+            glLineWidth(3)
+
+            glBegin(GL_LINE_LOOP)
+            glVertex2f(px, py + size)
+            glVertex2f(px + size, py)
+            glVertex2f(px, py - size)
+            glVertex2f(px - size, py)
+            glEnd()
+
+            glLineWidth(1)
+            glBegin(GL_LINES)
+            glVertex2f(px - size, py)
+            glVertex2f(px + size, py)
+            glVertex2f(px, py - size)
+            glVertex2f(px, py + size)
+            glVertex2f(px - size // 2, py + size // 2)
+            glVertex2f(px + size // 2, py - size // 2)
+            glVertex2f(px - size // 2, py - size // 2)
+            glVertex2f(px + size // 2, py + size // 2)
+            glEnd()
         else:
+            # Đạn ranged của Rabbit: viên tròn vàng
+            radius = 8
+            segments = 24
+
             glColor3f(1.0, 0.9, 0.2)
-            glPointSize(10)
-        glBegin(GL_POINTS)
-        glVertex2f(px, py)
-        glEnd()
+            glBegin(GL_TRIANGLE_FAN)
+            glVertex2f(px, py)
+            for i in range(segments + 1):
+                angle = 2 * math.pi * i / segments
+                glVertex2f(px + math.cos(angle) * radius, py + math.sin(angle) * radius)
+            glEnd()
+
+            glColor3f(1.0, 0.6, 0.1)
+            glLineWidth(2)
+            glBegin(GL_LINE_LOOP)
+            for i in range(segments):
+                angle = 2 * math.pi * i / segments
+                glVertex2f(px + math.cos(angle) * (radius + 2), py + math.sin(angle) * (radius + 2))
+            glEnd()
+
         glColor3f(1, 1, 1)
         glEnable(GL_TEXTURE_2D)
+
+    def _draw_kunai(self, px, py):
+        glDisable(GL_TEXTURE_2D)
+
+        # Kunai nhọn bay sang trái
+        glColor3f(0.85, 0.85, 0.85)
+        glBegin(GL_TRIANGLES)
+        glVertex2f(px - 24, py)
+        glVertex2f(px + 14, py + 8)
+        glVertex2f(px + 14, py - 8)
+        glEnd()
+
+        # Cán kunai
+        glColor3f(0.20, 0.20, 0.20)
+        glLineWidth(4)
+        glBegin(GL_LINES)
+        glVertex2f(px + 12, py)
+        glVertex2f(px + 28, py)
+        glEnd()
+
+        glColor3f(1, 1, 1)
+        glEnable(GL_TEXTURE_2D)
+
+    def _draw_smoke_ball(self, px, py):
+        radius = 14
+        segments = 24
+
+        glDisable(GL_TEXTURE_2D)
+
+        glColor3f(0.45, 0.45, 0.45)
+        glBegin(GL_TRIANGLE_FAN)
+        glVertex2f(px, py)
+        for i in range(segments + 1):
+            angle = 2 * math.pi * i / segments
+            glVertex2f(px + math.cos(angle) * radius, py + math.sin(angle) * radius)
+        glEnd()
+
+        glColor3f(0.65, 0.65, 0.65)
+        glLineWidth(2)
+        glBegin(GL_LINE_LOOP)
+        for i in range(segments):
+            angle = 2 * math.pi * i / segments
+            glVertex2f(px + math.cos(angle) * (radius + 3), py + math.sin(angle) * (radius + 3))
+        glEnd()
+
+        glColor3f(1, 1, 1)
+        glEnable(GL_TEXTURE_2D)
+
 
     def _draw_result_banner(self):
         from game.ui import draw_panel
