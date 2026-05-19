@@ -2,6 +2,7 @@
 # Định nghĩa các thực thể chiến đấu: Rabbit, Slime, Bee, Fox
 import random
 import math
+from utils.animation import Animation
 from utils.constants import (
     RABBIT_BASE_HP, RABBIT_BASE_ATK, RABBIT_START_LV,
     CRIT_CHANCE, CRIT_CHANCE_RANGED, MISS_CHANCE, MISS_CHANCE_RANGED,
@@ -17,6 +18,20 @@ def _level_scale(base, level, factor=0.15):
 # ─────────────────────────────────────────────────────────────────────────────
 #  RABBIT (phe ta - nhân vật chính)
 # ─────────────────────────────────────────────────────────────────────────────
+
+RABBIT_ANIMATIONS = {
+    # Mapping frame Rabbit - chỉnh lại số frame theo rabbit_spritesheet.png của bạn
+    "idle": Animation(frames=[0], speed=8, loop=True),
+    "hit": Animation(frames=[5], speed=6, loop=False),
+    "poison": Animation(frames=[6], speed=8, loop=False),
+    "guard": Animation(frames=[2], speed=7, loop=False),
+    "heal": Animation(frames=[7], speed=8, loop=False),
+    "attack": Animation(frames=[12, 13, 14, 15, 16, 17], speed=10, loop=False),
+    "ranged": Animation(frames=[4], speed=5, loop=False),
+    "net": Animation(frames=[4], speed=5, loop=False),
+    "dead": Animation(frames=[8, 9], speed=12, loop=False),
+}
+
 class Rabbit:
     def __init__(self):
         self.level = RABBIT_START_LV
@@ -31,9 +46,12 @@ class Rabbit:
         self.poison_stacks = 0         # Số lần dính độc
         self.smoke_miss_bonus = False   # Bị giảm độ chính xác do khói
         # Animation state
-        self.anim_state = "idle"        # idle / attack / ranged / guard / hurt / run
-        self.anim_timer = 0
-        self.anim_frame = 0
+        self.animations = {
+            name: Animation(anim.frames[:], anim.speed, anim.loop)
+            for name, anim in RABBIT_ANIMATIONS.items()
+        }
+        self.anim_state = "idle"
+        self.current_anim = self.animations["idle"]
         self.base_x = 820               # Vị trí X mặc định trong battle
         self.base_y = 320               # Vị trí Y mặc định trong battle
         self.draw_x = self.base_x
@@ -82,10 +100,61 @@ class Rabbit:
     def is_alive(self):
         return self.hp > 0
 
+    def set_anim(self, state):
+        """Đổi animation của Rabbit."""
+        if state not in self.animations:
+            return
+        if self.anim_state == state:
+            return
+
+        self.anim_state = state
+        self.current_anim = self.animations[state]
+        self.current_anim.reset()
+
+    def update_animation(self):
+        """Update animation Rabbit mỗi frame."""
+        self.current_anim.update()
+
+        # Dead giữ nguyên frame chết, không tự quay về idle
+        if self.anim_state == "dead":
+            return
+
+        # Poison/guard hiện đang là frame trạng thái, giữ đến khi state khác ghi đè
+        if self.anim_state in ("poison", "guard"):
+            return
+
+        # Animation tạm thời kết thúc -> quay lại idle/poison/dead
+        if self.current_anim.finished:
+            if self.anim_state in ("attack", "ranged", "hit", "heal", "net"):
+                if self.hp <= 0:
+                    self.set_anim("dead")
+                elif self.poisoned:
+                    self.set_anim("poison")
+                else:
+                    self.set_anim("idle")
+
+    def get_current_frame(self):
+        return self.current_anim.get_frame()
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  BASE ENEMY
 # ─────────────────────────────────────────────────────────────────────────────
+
+FOX_ANIMATIONS = {
+    # Mapping frame Fox - chỉnh lại số frame theo fox_spritesheet.png của bạn
+    "idle": Animation(frames=[0, 1], speed=100, loop=True),
+    "hit": Animation(frames=[3], speed=6, loop=False),
+    "kunai": Animation(frames=[2], speed=8, loop=False),
+    "smoke": Animation(frames=[2], speed=8, loop=False),
+    "power_charge": Animation(frames=[6, 7, 8, 9, 10, 11], speed=8, loop=False),
+
+    # Sau khi Power Charge xong, Fox dùng animation này thay cho Idle
+    "power_idle": Animation(frames=[6, 7, 8, 9, 10, 11], speed=8, loop=True),
+
+    "dead": Animation(frames=[12, 13, 14], speed=12, loop=False),
+}
+
 class BaseEnemy:
     KIND    = "enemy"
     BASE_HP  = 20
@@ -105,6 +174,8 @@ class BaseEnemy:
         self.anim_state = "idle"
         self.anim_timer = 0
         self.anim_frame = 0
+        self.animations = None
+        self.current_anim = None
         self.base_x = 200
         self.base_y = 300
         self.draw_x = self.base_x
@@ -182,9 +253,17 @@ class Fox(BaseEnemy):
 
     def __init__(self, level):
         super().__init__(level)
-        self.power_charged = False     # Đang ở trạng thái Power Charge
-        self.actions_this_turn = []    # Danh sách hành động trong lượt này
-        self.action_index = 0          # Chỉ số hành động hiện tại
+        self.power_charged = False      # Logic: lượt sau Kunai chắc chắn crit
+        self.powered_up_visual = False  # Visual: power_idle thay cho idle
+        self.actions_this_turn = []     # Danh sách hành động trong lượt này
+        self.action_index = 0           # Chỉ số hành động hiện tại
+
+        self.animations = {
+            name: Animation(anim.frames[:], anim.speed, anim.loop)
+            for name, anim in FOX_ANIMATIONS.items()
+        }
+        self.anim_state = "idle"
+        self.current_anim = self.animations["idle"]
 
     def plan_turn(self):
         """Lên kế hoạch 2 hành động cho lượt này của Cáo."""
@@ -218,6 +297,49 @@ class Fox(BaseEnemy):
 
     def has_more_actions(self):
         return self.action_index < len(self.actions_this_turn)
+
+    def set_anim(self, state):
+        """Đổi animation của Fox."""
+        if state not in self.animations:
+            return
+        if self.anim_state == state:
+            return
+
+        self.anim_state = state
+        self.current_anim = self.animations[state]
+        self.current_anim.reset()
+
+    def update_animation(self):
+        if not self.current_anim:
+            return
+
+        self.current_anim.update()
+
+        if self.anim_state == "dead":
+            return
+
+        if self.current_anim.finished:
+            if self.anim_state in ("hit", "kunai", "smoke", "power_charge"):
+
+                if self.hp <= 0:
+                    self.set_anim("dead")
+
+                elif self.powered_up_visual:
+                    self.set_anim("power_idle")
+
+                else:
+                    self.set_anim("idle")
+
+    def get_current_frame(self):
+        if self.current_anim:
+            return self.current_anim.get_frame()
+        return 0
+
+    def clear_power_visual(self):
+        """Gọi sau khi Kunai cường hóa đã được dùng."""
+        self.powered_up_visual = False
+        if self.hp > 0:
+            self.set_anim("idle")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
