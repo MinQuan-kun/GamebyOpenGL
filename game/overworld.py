@@ -88,6 +88,7 @@ def _parse_map(raw):
     return grid
 
 TILEMAP = _parse_map(_RAW_MAP)
+MAP_ROWS = len(TILEMAP)
 
 def tile_at(col, row):
     if 0 <= row < MAP_ROWS and 0 <= col < MAP_COLS:
@@ -103,18 +104,27 @@ class OverworldPlayer:
         self.w  = TILE - 8
         self.h  = TILE - 8
         self.anim_timer = 0
-        self.frame      = 0
+        self.frame_index = 0
         self.moving     = False
+        self.facing     = "down" # down, up, left, right
 
     def col(self): return int(self.px // TILE)
     def row(self): return MAP_ROWS - 1 - int(self.py // TILE)
 
     def update(self, keys):
         dx = dy = 0
-        if keys[pg.K_a] or keys[pg.K_LEFT]:  dx = -PLAYER_SPEED
-        if keys[pg.K_d] or keys[pg.K_RIGHT]: dx =  PLAYER_SPEED
-        if keys[pg.K_w] or keys[pg.K_UP]:    dy =  PLAYER_SPEED
-        if keys[pg.K_s] or keys[pg.K_DOWN]:  dy = -PLAYER_SPEED
+        if keys[pg.K_a] or keys[pg.K_LEFT]:  
+            dx = -PLAYER_SPEED
+            self.facing = "left"
+        elif keys[pg.K_d] or keys[pg.K_RIGHT]: 
+            dx =  PLAYER_SPEED
+            self.facing = "right"
+        elif keys[pg.K_w] or keys[pg.K_UP]:    
+            dy =  PLAYER_SPEED
+            self.facing = "up"
+        elif keys[pg.K_s] or keys[pg.K_DOWN]:  
+            dy = -PLAYER_SPEED
+            self.facing = "down"
 
         self.moving = (dx != 0 or dy != 0)
 
@@ -132,8 +142,11 @@ class OverworldPlayer:
         self.py = max(margin, min(MAP_ROWS * TILE - margin, self.py))
 
         self.anim_timer += 1
-        if self.moving and self.anim_timer % 12 == 0:
-            self.frame = (self.frame + 1) % 2
+        if self.moving:
+            if self.anim_timer % 8 == 0:
+                self.frame_index = (self.frame_index + 1) % 4
+        else:
+            self.frame_index = 0
 
     def _blocked_at(self, wx, wy):
         half = (self.w // 2) - 2
@@ -320,12 +333,26 @@ def draw_overworld(player, text_ren, cam_x=0, cam_y=0, renderers=None):
     # Vẽ player (hình thỏ đơn giản = hình chữ nhật + tai)
     px = player.px - player.w // 2
     py = player.py - player.h // 2
-    _draw_tile_quad(px, py, player.w, player.h, (0.9, 0.85, 0.8))
-    # Tai
-    ear_w = player.w * 0.2
-    ear_h = player.h * 0.45
-    _draw_tile_quad(px + player.w * 0.15, py + player.h, ear_w, ear_h, (0.9, 0.80, 0.80))
-    _draw_tile_quad(px + player.w * 0.60, py + player.h, ear_w, ear_h, (0.9, 0.80, 0.80))
+    
+    rabbit_front = renderers.get("rabbit_front") if renderers else None
+    rabbit_back = renderers.get("rabbit_back") if renderers else None
+    
+    ren = None
+    flip = False
+    if player.facing == "down":
+        ren = rabbit_front
+    else: # up, left, right
+        ren = rabbit_back
+        
+    if ren:
+        ren.draw(int(px) - 8, int(py) - 8, player.w + 16, player.h + 16, player.frame_index, flip_x=flip)
+    else:
+        _draw_tile_quad(px, py, player.w, player.h, (0.9, 0.85, 0.8))
+        # Tai
+        ear_w = player.w * 0.2
+        ear_h = player.h * 0.45
+        _draw_tile_quad(px + player.w * 0.15, py + player.h, ear_w, ear_h, (0.9, 0.80, 0.80))
+        _draw_tile_quad(px + player.w * 0.60, py + player.h, ear_w, ear_h, (0.9, 0.80, 0.80))
 
     glPopMatrix()
 
