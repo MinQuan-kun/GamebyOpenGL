@@ -18,6 +18,7 @@ from utils.constants import SCREEN_WIDTH, SCREEN_HEIGHT, RANGED_USES_MAX
 
 # ── Trạng thái battle ──────────────────────────────────────────────────────
 BS_PLAYER_SELECT  = "player_select"   # Chờ người chơi chọn lệnh
+BS_TARGET_SELECT  = "target_select"   # Chờ chọn mục tiêu quái vật
 BS_PLAYER_ANIM    = "player_anim"     # Đang chạy animation phe ta
 BS_ENEMY_TURN     = "enemy_turn"      # Lượt địch
 BS_ENEMY_ANIM     = "enemy_anim"      # Animation địch
@@ -50,12 +51,12 @@ def draw_battle_bg(is_boss=False):
 
 # ── Vị trí địch trên màn hình ─────────────────────────────────────────────
 ENEMY_SLOTS = [
-    (160, 350),   # slot 0
-    (300, 290),   # slot 1
-    (120, 240),   # slot 2 (hiếm khi dùng, quái thứ 3)
+    (960, 350),   # slot 0
+    (820, 290),   # slot 1
+    (1000, 240),  # slot 2 (bên phải)
 ]
 
-ALLY_BASE_X = 820
+ALLY_BASE_X = 250   # bên trái
 ALLY_BASE_Y = 320
 
 
@@ -115,52 +116,52 @@ class BattleSystem:
 
     # ── Input xử lý ─────────────────────────────────────────────────────────
     def handle_input(self, event):
-        if self.state != BS_PLAYER_SELECT:
+        if self.state not in (BS_PLAYER_SELECT, BS_TARGET_SELECT):
             return
 
         living = self._living_enemies()
         if not living:
             return
 
-        if event.type == pg.KEYDOWN:
-            if event.key == pg.K_LEFT:
-                self.selected_cmd = (self.selected_cmd - 1) % 4
-            elif event.key == pg.K_RIGHT:
-                self.selected_cmd = (self.selected_cmd + 1) % 4
-            elif event.key == pg.K_UP:
-                self.selected_cmd = (self.selected_cmd - 2) % 4
-            elif event.key == pg.K_DOWN:
-                self.selected_cmd = (self.selected_cmd + 2) % 4
-            elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
-                self._confirm_command(living)
-            # Tab: đổi mục tiêu
-            elif event.key == pg.K_TAB:
-                if living:
+        if self.state == BS_PLAYER_SELECT:
+            if event.type == pg.KEYDOWN:
+                if event.key in (pg.K_LEFT, pg.K_a):
+                    self.selected_cmd = (self.selected_cmd - 1) % 4
+                elif event.key in (pg.K_RIGHT, pg.K_d):
+                    self.selected_cmd = (self.selected_cmd + 1) % 4
+                elif event.key in (pg.K_UP, pg.K_w):
+                    self.selected_cmd = (self.selected_cmd - 2) % 4
+                elif event.key in (pg.K_DOWN, pg.K_s):
+                    self.selected_cmd = (self.selected_cmd + 2) % 4
+                elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
+                    cmd = self.selected_cmd
+                    if cmd in (0, 1): # Attack hoặc Ranged
+                        if cmd == 1 and self.rabbit.ranged_uses <= 0:
+                            self._push_msg("Hết đạn Ranged!")
+                        else:
+                            self.state = BS_TARGET_SELECT
+                            self.selected_target = 0  # Bắt đầu chọn từ quái đầu tiên
+                    elif cmd == 2: # Guard
+                        self._queue_guard()
+                    elif cmd == 3: # Run
+                        self._queue_run()
+
+        elif self.state == BS_TARGET_SELECT:
+            if event.type == pg.KEYDOWN:
+                if event.key in (pg.K_UP, pg.K_w):
+                    self.selected_target = (self.selected_target - 1) % len(living)
+                elif event.key in (pg.K_DOWN, pg.K_s):
                     self.selected_target = (self.selected_target + 1) % len(living)
-            # Chọn mục tiêu (số 1-3)
-            elif event.key == pg.K_1 and len(living) >= 1:
-                self.selected_target = 0
-            elif event.key == pg.K_2 and len(living) >= 2:
-                self.selected_target = 1
-            elif event.key == pg.K_3 and len(living) >= 3:
-                self.selected_target = 2
-
-    def _confirm_command(self, living):
-        cmd = self.selected_cmd
-        if cmd == 1 and self.rabbit.ranged_uses <= 0:
-            self._push_msg("Hết đạn Ranged!")
-            return
-
-        tgt = living[min(self.selected_target, len(living)-1)]
-
-        if cmd == 0:   # Attack
-            self._queue_rabbit_attack(tgt, ranged=False)
-        elif cmd == 1: # Ranged
-            self._queue_rabbit_attack(tgt, ranged=True)
-        elif cmd == 2: # Guard
-            self._queue_guard()
-        elif cmd == 3: # Run
-            self._queue_run()
+                elif event.key in (pg.K_ESCAPE, pg.K_x, pg.K_BACKSPACE):
+                    # Hủy chọn, quay về menu chọn lệnh
+                    self.state = BS_PLAYER_SELECT
+                elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
+                    # Xác nhận tấn công quái đã chọn
+                    tgt = living[min(self.selected_target, len(living)-1)]
+                    if self.selected_cmd == 0:
+                        self._queue_rabbit_attack(tgt, ranged=False)
+                    elif self.selected_cmd == 1:
+                        self._queue_rabbit_attack(tgt, ranged=True)
 
     # ── Queue actions ────────────────────────────────────────────────────────
     def _queue_rabbit_attack(self, target, ranged=False):
@@ -315,7 +316,10 @@ class BattleSystem:
 
         if d["type"] == "rabbit_atk":
             tgt = d["target"]
-            tx, ty = tgt.draw_x + 60, tgt.draw_y + 40
+            if not d["ranged"]:
+                tx, ty = tgt.draw_x - 60, tgt.draw_y + 40  # Đứng bên trái quái
+            else:
+                tx, ty = tgt.draw_x + 30, tgt.draw_y + 40  # Đạn chạm mặt quái
 
             if not d["ranged"]:
                 # Melee: di chuyển đến địch rồi quay về
@@ -514,14 +518,14 @@ class BattleSystem:
             rend = self.renderers.get(e.KIND)
             if rend:
                 ew, eh = 90, 90
-                rend.draw(int(e.draw_x), int(e.draw_y), ew, eh, 0)
+                rend.draw(int(e.draw_x), int(e.draw_y), ew, eh, 0, flip_x=False)
                 draw_enemy_status(e, int(e.draw_x), int(e.draw_y), ew, eh, self.text_ren)
 
         # Vẽ thỏ
         rabbit_rend = self.renderers.get("rabbit")
         if rabbit_rend:
             rw, rh = 80, 80
-            rabbit_rend.draw(int(self.rabbit.draw_x), int(self.rabbit.draw_y), rw, rh, 0, flip_x=True)
+            rabbit_rend.draw(int(self.rabbit.draw_x), int(self.rabbit.draw_y), rw, rh, 0, flip_x=False)
 
         # Vẽ projectile nếu đang Ranged
         if self.state == BS_PLAYER_ANIM:
@@ -533,15 +537,21 @@ class BattleSystem:
         draw_ally_status(self.rabbit, self.text_ren, 20, 20)
 
         # Command box
-        if self.state == BS_PLAYER_SELECT:
+        if self.state in (BS_PLAYER_SELECT, BS_TARGET_SELECT):
             tgt_idx = min(self.selected_target, len(living)-1) if living else 0
             draw_command_box(self.selected_cmd, "Rabbit",
-                            self.text_ren, self.rabbit.ranged_uses)
-            # Highlight mục tiêu đang chọn
-            if living:
+                            self.text_ren, self.rabbit.ranged_uses,
+                            enabled=(self.state == BS_PLAYER_SELECT))
+            
+            # Chỉ vẽ viền Highlight mục tiêu và dòng hướng dẫn khi ở trạng thái chọn mục tiêu
+            if self.state == BS_TARGET_SELECT and living:
                 te = living[tgt_idx]
                 draw_rect_outline(int(te.draw_x)-4, int(te.draw_y)-4, 98, 98, (255, 220, 0), 3)
-                self.text_ren.draw_text("Tab/1-2-3: Chọn mục tiêu  |  Mũi tên: Chọn lệnh  |  Enter/Z: Xác nhận",
+                self.text_ren.draw_text("W/S hoặc Mũi tên Lên/Xuống: Chọn quái  |  Enter/Z: Tấn công  |  Esc: Quay lại",
+                                        SCREEN_WIDTH//2, SCREEN_HEIGHT - 18, size=14,
+                                        color=(240, 240, 160), center_x=True)
+            elif self.state == BS_PLAYER_SELECT:
+                self.text_ren.draw_text("WASD / Phím mũi tên: Chọn lệnh  |  Enter/Z/Space: Xác nhận",
                                         SCREEN_WIDTH//2, SCREEN_HEIGHT - 18, size=14,
                                         color=(160, 180, 160), center_x=True)
         else:

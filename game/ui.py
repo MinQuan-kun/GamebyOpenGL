@@ -63,7 +63,7 @@ def draw_ally_status(rabbit, text_renderer, panel_x=20, panel_y=20):
     Vẽ panel trạng thái Rabbit ở góc dưới trái.
     HP bar trên, Energy bar dưới (ngắn hơn).
     """
-    pw, ph = 260, 80
+    pw, ph = 340, 80
     draw_panel(panel_x, panel_y, pw, ph, 210)
 
     # Tên + cấp
@@ -73,13 +73,13 @@ def draw_ally_status(rabbit, text_renderer, panel_x=20, panel_y=20):
     # HP bar
     bar_x = panel_x + 8
     bar_y = panel_y + ph - 42
-    bar_w = pw - 16
+    bar_w = pw - 100
     bar_h = 14
     draw_hp_bar(bar_x, bar_y, bar_w, bar_h,
                 rabbit.hp, rabbit.max_hp,
                 COL_HP_BAR, COL_HP_BG)
     hp_txt = f"HP {rabbit.hp}/{rabbit.max_hp}"
-    text_renderer.draw_text(hp_txt, bar_x + bar_w + 4, bar_y, size=13, color=COL_HP_BAR)
+    text_renderer.draw_text(hp_txt, bar_x + bar_w + 6, bar_y, size=13, color=COL_HP_BAR)
 
     # Status icons
     if rabbit.poisoned:
@@ -95,7 +95,7 @@ def draw_ally_status(rabbit, text_renderer, panel_x=20, panel_y=20):
                 rabbit.exp, rabbit.exp_to_next,
                 COL_EN_BAR, COL_EN_BG)
     en_txt = f"EXP {rabbit.exp}/{rabbit.exp_to_next}"
-    text_renderer.draw_text(en_txt, bar_x + en_bar_w + 4, en_bar_y, size=13, color=COL_EN_BAR)
+    text_renderer.draw_text(en_txt, bar_x + en_bar_w + 6, en_bar_y, size=13, color=COL_EN_BAR)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -152,7 +152,7 @@ def draw_command_box(selected_cmd, actor_name, text_renderer,
     ]
     for i, label in enumerate(labels):
         col = i % cols
-        row = i // cols
+        row = 1 - (i // cols)  # Đảo chiều Y vẽ để Attack/Ranged lên trên, Guard/Run xuống dưới
         cx = box_x + 10 + col * (CMD_W + CMD_GAP)
         cy = box_y + 10 + row * (CMD_H + CMD_GAP)
 
