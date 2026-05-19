@@ -13,6 +13,9 @@ T_BUSH    = 2   # Bụi cỏ #1 (Slime)
 T_BUSH2   = 3   # Bụi cỏ #2 (Slime/Bee mix)
 T_PATH    = 4   # Đường đi (safe)
 T_BOSS    = 5   # Điểm boss
+T_FENCE_H = 6   # Hàng rào ngang
+T_HOUSE   = 7   # Nhà
+T_FENCE_V = 8   # Hàng rào dọc
 
 # ── Màu sắc tile ──────────────────────────────────────────────────────────
 TILE_COLORS = {
@@ -22,6 +25,9 @@ TILE_COLORS = {
     T_BUSH2: (0.45, 0.70, 0.10),
     T_PATH:  (0.60, 0.50, 0.30),
     T_BOSS:  (0.60, 0.15, 0.10),
+    T_FENCE_H: (0.50, 0.35, 0.20),
+    T_HOUSE: (0.40, 0.40, 0.50),
+    T_FENCE_V: (0.50, 0.35, 0.20),
 }
 
 TREE_TRUNK = (0.35, 0.22, 0.08)
@@ -32,26 +38,26 @@ TREE_CROWN = (0.10, 0.40, 0.08)
 # Người chơi bắt đầu ở (2,10)
 _RAW_MAP = [
     "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-    "X............................X",
-    "X....XXXXX.....XXXX..........X",
-    "X....X.........X.............X",
-    "X....X...11....X.....XXXXX...X",
-    "X....X...11....X.............X",
-    "X....XXXXX.....X.............X",
-    "X..............X..22222......X",
-    "X..............X..22222......X",
-    "X..PP..........X.............X",
-    "X..PP..........PPPPPPPPPP....X",
-    "X..PP..XXXXXXXXX.............X",
-    "X..PP..X.....................X",
-    "X..PPPPX.....................X",
-    "X......X.............XXXXX...X",
-    "X......XXXXXXXXX.............X",
-    "X............................X",
-    "X.....PPPPPPPPPPPPPPPPPPPB...X",
-    "X............................X",
-    "X............................X",
-    "X............................X",
+    "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "XXXXXXXXX      B    XXXXXXXXXX",
+    "XXXXXXXXX      H    XXXXXXXXXX",
+    "XXXXXXXXX    PPPP   XXXXXXXXXX",
+    "XXXXXXXXX    |PP|   XXXXXXXXXX",
+    "XXXXXXXXX    |PP|   ---XXXXXXX",
+    "XXXXXXXXX    |PP|   P2|XXXXXXX",
+    "XXXXXXXXX    |PP|   P2|XXXXXXX",
+    "XXXXXXXXX    |PPPPPPP2|XXXXXXX",
+    "XXXXXXXXX    |PP|---|2|XXXXXXX",
+    "XXXXXXXXX    |PP|   ---XXXXXXX",
+    "XXXXXXXXX    |PP|   XXXXXXXXXX",
+    "---XXXXXX    |PP|   XXXXXXXXXX",
+    "11|XXXXXX    |PP|   XXXXXXXXXX",
+    "11PPPPPPPPPPPPPP|   XXXXXXXXXX",
+    "11|XXXXXX    |PP|   XXXXXXXXXX",
+    "---XXXXXX    |PP|   XXXXXXXXXX",
+    "XXXXXXXXX    |PP|   XXXXXXXXXX",
+    "XXXXXXXXX    |PP|   XXXXXXXXXX",
+    "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
 ]
 
@@ -70,6 +76,12 @@ def _parse_map(raw):
                 line.append(T_PATH)
             elif ch == 'B':
                 line.append(T_BOSS)
+            elif ch == '-':
+                line.append(T_FENCE_H)
+            elif ch == '|':
+                line.append(T_FENCE_V)
+            elif ch == 'H':
+                line.append(T_HOUSE)
             else:
                 line.append(T_GRASS)
         grid.append(line)
@@ -84,7 +96,7 @@ def tile_at(col, row):
 
 
 class OverworldPlayer:
-    def __init__(self, col=2, row=10):
+    def __init__(self, col=14, row=18):
         # Vị trí theo pixel (tính từ góc dưới-trái OpenGL)
         self.px = col * TILE + TILE // 2
         self.py = (MAP_ROWS - 1 - row) * TILE + TILE // 2
@@ -131,7 +143,8 @@ class OverworldPlayer:
         ]:
             c = int(corner_x // TILE)
             r = MAP_ROWS - 1 - int(corner_y // TILE)
-            if tile_at(c, r) == T_TREE:
+            t = tile_at(c, r)
+            if t in (T_TREE, T_FENCE_H, T_FENCE_V, T_HOUSE):
                 return True
         return False
 
@@ -173,7 +186,64 @@ def _draw_tree(x, y, tile):
     _draw_tile_quad(cx, cy, cw, ch, TREE_CROWN)
 
 
-def draw_overworld(player, text_ren, cam_x=0, cam_y=0):
+def _draw_fence(x, y, size, is_horizontal=True):
+    """Vẽ hàng rào gỗ chéo/thẳng bằng OpenGL."""
+    glColor4f(0.4, 0.25, 0.1, 1.0)
+    glBegin(GL_QUADS)
+    if is_horizontal:
+        # Cọc dọc
+        glVertex2f(x + size*0.2, y + size*0.1)
+        glVertex2f(x + size*0.3, y + size*0.1)
+        glVertex2f(x + size*0.3, y + size*0.9)
+        glVertex2f(x + size*0.2, y + size*0.9)
+
+        glVertex2f(x + size*0.7, y + size*0.1)
+        glVertex2f(x + size*0.8, y + size*0.1)
+        glVertex2f(x + size*0.8, y + size*0.9)
+        glVertex2f(x + size*0.7, y + size*0.9)
+        glEnd()
+
+        # Thanh ngang
+        glColor4f(0.5, 0.35, 0.2, 1.0)
+        glBegin(GL_QUADS)
+        glVertex2f(x, y + size*0.3)
+        glVertex2f(x + size, y + size*0.3)
+        glVertex2f(x + size, y + size*0.4)
+        glVertex2f(x, y + size*0.4)
+        
+        glVertex2f(x, y + size*0.6)
+        glVertex2f(x + size, y + size*0.6)
+        glVertex2f(x + size, y + size*0.7)
+        glVertex2f(x, y + size*0.7)
+    else:
+        # Cọc ngang
+        glVertex2f(x + size*0.1, y + size*0.2)
+        glVertex2f(x + size*0.1, y + size*0.3)
+        glVertex2f(x + size*0.9, y + size*0.3)
+        glVertex2f(x + size*0.9, y + size*0.2)
+
+        glVertex2f(x + size*0.1, y + size*0.7)
+        glVertex2f(x + size*0.1, y + size*0.8)
+        glVertex2f(x + size*0.9, y + size*0.8)
+        glVertex2f(x + size*0.9, y + size*0.7)
+        glEnd()
+
+        # Thanh dọc
+        glColor4f(0.5, 0.35, 0.2, 1.0)
+        glBegin(GL_QUADS)
+        glVertex2f(x + size*0.3, y)
+        glVertex2f(x + size*0.4, y)
+        glVertex2f(x + size*0.4, y + size)
+        glVertex2f(x + size*0.3, y + size)
+        
+        glVertex2f(x + size*0.6, y)
+        glVertex2f(x + size*0.7, y)
+        glVertex2f(x + size*0.7, y + size)
+        glVertex2f(x + size*0.6, y + size)
+    glEnd()
+
+
+def draw_overworld(player, text_ren, cam_x=0, cam_y=0, renderers=None):
     """Vẽ toàn bộ overworld map + player."""
     # Nền
     glClearColor(0.10, 0.25, 0.08, 1.0)
@@ -190,24 +260,62 @@ def draw_overworld(player, text_ren, cam_x=0, cam_y=0):
     glPushMatrix()
     glTranslatef(-view_x, -view_y, 0)
 
-    # Vẽ tiles
-    trees = []  # Cây vẽ sau cùng (lớp trên)
+    # Lấy renderers
+    grass_ren = renderers.get("grass") if renderers else None
+    path_ren = renderers.get("path") if renderers else None
+    fence_h_ren = renderers.get("fence_h") if renderers else None
+    fence_v_ren = renderers.get("fence_v") if renderers else None
+    
+    # Không dùng tree và house renderer nữa theo yêu cầu
+    tree_ren = None
+    house_ren = None
+    map_bg_ren = None
+
+    # Lựa chọn 2: Vẽ tiles rời rạc
+    trees = []
+    houses = []
+    fences = []
     for row in range(MAP_ROWS):
         for col in range(MAP_COLS):
             t = TILEMAP[row][col]
             x = col * TILE
             y = (MAP_ROWS - 1 - row) * TILE
+            
+            # Luôn vẽ cỏ làm nền dưới cùng
+            if grass_ren:
+                grass_ren.draw(x, y, TILE, TILE, 0)
+            else:
+                _draw_tile_quad(x, y, TILE, TILE_COLORS[T_GRASS])
+                
             if t == T_TREE:
                 trees.append((x, y))
-            else:
-                _draw_tile_quad(x, y, TILE, TILE_COLORS[t])
-                # Viền bụi cỏ
-                if t in (T_BUSH, T_BUSH2):
-                    _draw_bush_detail(x, y, t)
+            elif t == T_HOUSE:
+                pass # houses.append((x, y)) - Ẩn nhà tạm thời
+            elif t in (T_FENCE_H, T_FENCE_V):
+                fences.append((x, y, t))
+            elif t == T_PATH or t == T_BOSS:
+                if path_ren:
+                    path_ren.draw(x, y, TILE, TILE, 0)
+                else:
+                    _draw_tile_quad(x, y, TILE, TILE_COLORS[T_PATH])
+            elif t in (T_BUSH, T_BUSH2):
+                _draw_bush_detail(x, y, t)
+
+    for (x, y, t_type) in fences:
+        _draw_fence(x, y, TILE, is_horizontal=(t_type == T_FENCE_H))
+
+    for (x, y) in houses:
+        if house_ren:
+            # Chỉnh kích thước to ra
+            house_ren.draw(int(x - TILE*0.5), int(y), int(TILE*2), int(TILE*2), 0)
+        else:
+            _draw_tile_quad(x, y, TILE, TILE_COLORS[T_HOUSE])
 
     for (x, y) in trees:
-        _draw_tile_quad(x, y, TILE, TILE_COLORS[T_TREE])
-        _draw_tree(x, y, TILE)
+        if tree_ren:
+            tree_ren.draw(int(x - TILE*0.25), int(y), int(TILE*1.5), int(TILE*1.5), 0)
+        else:
+            _draw_tree(x, y, TILE)
 
     # Vẽ player (hình thỏ đơn giản = hình chữ nhật + tai)
     px = player.px - player.w // 2
