@@ -1,5 +1,6 @@
 # game/combat_entities.py
 # Định nghĩa các thực thể chiến đấu: Rabbit, Slime, Bee, Fox
+from utils.animation import Animation
 import random
 import math
 from utils.constants import (
@@ -17,6 +18,46 @@ def _level_scale(base, level, factor=0.15):
 # ─────────────────────────────────────────────────────────────────────────────
 #  RABBIT (phe ta - nhân vật chính)
 # ─────────────────────────────────────────────────────────────────────────────
+RABBIT_ANIMATIONS = {
+    "idle": Animation(
+        frames=[0],
+        loop=True
+    ),
+
+    "hit": Animation(
+        frames=[5],
+        loop=False
+    ),
+
+    "poison": Animation(
+        frames=[6],
+        loop=False
+    ),
+
+    "guard": Animation(
+        frames=[2],
+        loop=False
+    ),
+
+    "attack": Animation(
+        frames=[12, 13, 14, 15, 16, 17],
+        speed=10,
+        loop=False
+    ),
+
+    "ranged": Animation(
+        frames=[4],
+        speed=5,
+        loop=False
+    ),
+
+    "dead": Animation(
+        frames=[8, 9],
+        speed=12,
+        loop=False
+    ),
+}
+
 class Rabbit:
     def __init__(self):
         self.level = RABBIT_START_LV
@@ -31,9 +72,15 @@ class Rabbit:
         self.poison_stacks = 0         # Số lần dính độc
         self.smoke_miss_bonus = False   # Bị giảm độ chính xác do khói
         # Animation state
-        self.anim_state = "idle"        # idle / attack / ranged / guard / hurt / run
-        self.anim_timer = 0
-        self.anim_frame = 0
+        #Idle
+        self.animations = {
+            name: Animation(anim.frames[:], anim.speed, anim.loop)
+            for name, anim in RABBIT_ANIMATIONS.items()
+        }
+
+        self.anim_state = "idle"
+        self.current_anim = self.animations["idle"]
+
         self.base_x = 820               # Vị trí X mặc định trong battle
         self.base_y = 320               # Vị trí Y mặc định trong battle
         self.draw_x = self.base_x
@@ -81,6 +128,32 @@ class Rabbit:
 
     def is_alive(self):
         return self.hp > 0
+
+    def set_anim(self, state):
+        if self.anim_state == state:
+            return
+
+        self.anim_state = state
+        self.current_anim = self.animations[state]
+        self.current_anim.reset()
+
+    def update_animation(self):
+        self.current_anim.update()
+
+        if self.anim_state == "dead":
+            return
+
+        if self.current_anim.finished:
+            if self.anim_state in ("attack", "ranged", "hit"):
+                if self.hp <= 0:
+                    self.set_anim("dead")
+                elif self.poisoned:
+                    self.set_anim("poison")
+                else:
+                    self.set_anim("idle")
+
+    def get_current_frame(self):
+        return self.current_anim.get_frame()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

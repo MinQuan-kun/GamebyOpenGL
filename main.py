@@ -95,12 +95,23 @@ def main():
             return None
 
     renderers = {
+        # Overworld rabbit
         "rabbit": safe_renderer("assets/player/Player.png", 3, 3),
+
+        # Battle rabbit spritesheet 11x6
+        "rabbit_battle": safe_renderer(
+            "assets/sprite_sheets/rabbit_spritesheet.png",
+            6,
+            6
+        ),
+
         "rabbit_front": safe_renderer("assets/player/Player_front.png", 4, 1),
         "rabbit_back":  safe_renderer("assets/player/Player_back.png", 4, 1),
+
         "slime":  safe_renderer("assets/enemies/Enemy.png", 2, 4),
         "bee":    safe_renderer("assets/enemies/Enemy.png", 2, 4),
         "fox":    safe_renderer("assets/enemies/Enemy.png", 2, 4),
+
         "grass":  safe_renderer("assets/newassets/grass.png", 1, 1),
     }
 

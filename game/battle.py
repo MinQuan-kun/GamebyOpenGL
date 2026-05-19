@@ -165,7 +165,16 @@ class BattleSystem:
 
     # ── Queue actions ────────────────────────────────────────────────────────
     def _queue_rabbit_attack(self, target, ranged=False):
+        PROJECTILE_OFFSET_X = 125
+        PROJECTILE_OFFSET_Y = 85
         self.rabbit.is_guarding = False  # Guard chỉ kéo dài 1 lượt
+
+        #Attack/Ranged
+        if ranged:
+            self.rabbit.set_anim("ranged")
+        else:
+            self.rabbit.set_anim("attack")
+
         self.state = BS_PLAYER_ANIM
         self.anim_timer = 0
 
@@ -190,13 +199,14 @@ class BattleSystem:
             "phase": 0,      # 0=move, 1=hit, 2=return
             "start_x": self.rabbit.draw_x,
             "start_y": self.rabbit.draw_y,
-            "proj_x": float(self.rabbit.draw_x),
-            "proj_y": float(self.rabbit.draw_y),
+            "proj_x": float(self.rabbit.draw_x + 125),
+            "proj_y": float(self.rabbit.draw_y + 85),
             "applied": False,
         }
 
     def _queue_guard(self):
         self.rabbit.is_guarding = True
+        self.rabbit.set_anim("guard")
         self._push_msg("Rabbit đang phòng thủ! Sát thương nhận vào giảm 1/3.")
         self._start_enemy_turn()
 
@@ -274,12 +284,14 @@ class BattleSystem:
     def _end_turn(self):
         """Cuối lượt: xử lý poison, kiểm tra thua."""
         if self.rabbit.poisoned:
+            self.rabbit.set_anim("poison")
             pdmg = max(1, int(self.rabbit.max_hp * 0.05 * self.rabbit.poison_stacks))
             self.rabbit.hp = max(0, self.rabbit.hp - pdmg)
             self._push_msg(f"Poison gây {pdmg} sát thương!")
             self._add_float(f"-{pdmg} PSN", self.rabbit.draw_x, self.rabbit.draw_y, COL_PURPLE)
 
         if not self.rabbit.is_alive():
+            self.rabbit.set_anim("dead")
             self.result = "lose"
             self.state  = BS_LOSE
             self._push_msg("Rabbit đã ngã xuống!")
@@ -299,6 +311,9 @@ class BattleSystem:
     # ── Update animation ─────────────────────────────────────────────────────
     def update(self):
         self.msg_log.update()
+
+        self.rabbit.update_animation()
+
         for f in self.floats:
             f.update()
         self.floats = [f for f in self.floats if not f.is_dead()]
@@ -438,6 +453,7 @@ class BattleSystem:
                             self._add_float("Miss", self.rabbit.draw_x, self.rabbit.draw_y, COL_GRAY)
                         else:
                             actual = self.rabbit.take_damage(d["dmg"])
+                            self.rabbit.set_anim("hit")
                             prefix = "CRIT! " if d["is_crit"] else ""
                             self._push_msg(f"{prefix}{enemy.KIND.capitalize()} gây {actual} damage lên Rabbit!")
                             self._add_float(f"-{actual}", self.rabbit.draw_x, self.rabbit.draw_y, COL_RED)
@@ -494,6 +510,7 @@ class BattleSystem:
             self._add_float("Miss", self.rabbit.draw_x, self.rabbit.draw_y, COL_GRAY)
         else:
             actual = self.rabbit.take_damage(dmg)
+            self.rabbit.set_anim("hit")
             prefix = "CRIT! " if is_crit else ""
             self._push_msg(f"{prefix}Cáo ném Kunai gây {actual} damage!")
             self._add_float(f"-{actual}", self.rabbit.draw_x, self.rabbit.draw_y, COL_ORANGE, 28)
@@ -522,10 +539,17 @@ class BattleSystem:
                 draw_enemy_status(e, int(e.draw_x), int(e.draw_y), ew, eh, self.text_ren)
 
         # Vẽ thỏ
-        rabbit_rend = self.renderers.get("rabbit")
+        rabbit_rend = self.renderers.get("rabbit_battle")
         if rabbit_rend:
-            rw, rh = 80, 80
-            rabbit_rend.draw(int(self.rabbit.draw_x), int(self.rabbit.draw_y), rw, rh, 0, flip_x=False)
+            rw, rh = 160, 160
+            rabbit_rend.draw(
+                int(self.rabbit.draw_x),
+                int(self.rabbit.draw_y),
+                rw,
+                rh,
+                self.rabbit.get_current_frame(),
+                flip_x=False
+            )
 
         # Vẽ projectile nếu đang Ranged
         if self.state == BS_PLAYER_ANIM:
@@ -572,12 +596,39 @@ class BattleSystem:
             self._draw_result_banner()
 
     def _draw_projectile(self, px, py):
+        import math
+
+        radius = 8
+        segments = 24
+
         glDisable(GL_TEXTURE_2D)
+
+        # lõi viên đạn
         glColor3f(1.0, 0.9, 0.2)
-        glPointSize(10)
-        glBegin(GL_POINTS)
+        glBegin(GL_TRIANGLE_FAN)
         glVertex2f(px, py)
+
+        for i in range(segments + 1):
+            angle = 2 * math.pi * i / segments
+            x = px + math.cos(angle) * radius
+            y = py + math.sin(angle) * radius
+            glVertex2f(x, y)
+
         glEnd()
+
+        # viền sáng ngoài
+        glColor3f(1.0, 0.6, 0.1)
+        glLineWidth(2)
+        glBegin(GL_LINE_LOOP)
+
+        for i in range(segments):
+            angle = 2 * math.pi * i / segments
+            x = px + math.cos(angle) * (radius + 2)
+            y = py + math.sin(angle) * (radius + 2)
+            glVertex2f(x, y)
+
+        glEnd()
+
         glColor3f(1, 1, 1)
         glEnable(GL_TEXTURE_2D)
 
