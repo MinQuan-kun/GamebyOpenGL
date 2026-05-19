@@ -24,7 +24,7 @@ ST_GAMEOVER  = 3
 ST_WIN       = 4
 
 # ── Cooldown bụi cỏ (frames) để không liên tục trigger ───────────────────
-BUSH_COOLDOWN = 120
+BUSH_COOLDOWN = 180
 
 
 def setup_opengl():
@@ -154,6 +154,8 @@ def main():
                         else:
                             state = ST_OVERWORLD
                             bush_cd = BUSH_COOLDOWN
+                            # Lưu lại ô cỏ vừa kết thúc trận đấu để không gặp lại khi đứng yên
+                            ow_player.last_battle_tile = (ow_player.col(), ow_player.row())
                     battle_sys = None
 
         # ── UPDATE ──────────────────────────────────────────────────────────
@@ -170,9 +172,22 @@ def main():
                 bush_cd -= 1
 
             # Kiểm tra tile hiện tại
+            cur_col, cur_row = ow_player.col(), ow_player.row()
             cur_tile = ow_player.current_tile()
 
-            if bush_cd == 0 and cur_tile in (T_BUSH, T_BUSH2, T_BOSS):
+            # Nếu rời khỏi ô cỏ đã gặp trận đấu, reset last_battle_tile
+            if getattr(ow_player, 'last_battle_tile', None) != (cur_col, cur_row):
+                ow_player.last_battle_tile = None
+
+            # Chỉ kích hoạt trận đấu khi:
+            # 1. Bụi cỏ hết cooldown (bush_cd == 0)
+            # 2. Đứng trên ô cỏ hoặc boss
+            # 3. Người chơi đang thực sự di chuyển (ow_player.moving == True)
+            # 4. Ô này không phải là ô cỏ vừa diễn ra trận đấu trước đó (ow_player.last_battle_tile is None)
+            if (bush_cd == 0 and 
+                cur_tile in (T_BUSH, T_BUSH2, T_BOSS) and 
+                ow_player.moving and 
+                getattr(ow_player, 'last_battle_tile', None) is None):
                 # Trigger encounter
                 if cur_tile == T_BOSS and not boss_defeated:
                     boss_lv = max(rabbit.level, rabbit.level)
