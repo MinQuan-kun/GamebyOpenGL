@@ -177,7 +177,7 @@ def draw_command_box(selected_cmd, actor_name, text_renderer,
 # ─────────────────────────────────────────────────────────────────────────────
 #  ITEM SUBMENU (Hiển thị hòm đồ Pokemon Red Style trong trận)
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_item_submenu(selected_idx, item_options, text_renderer, carrot_qty=3):
+def draw_item_submenu(selected_idx, item_options, text_renderer, net_qty=100, carrot_qty=100, revive_qty=100, is_target_select=False):
     """
     Vẽ menu chọn vật phẩm nhỏ đè/nằm cạnh Command Box phong cách Pokemon Red.
     """
@@ -190,7 +190,8 @@ def draw_item_submenu(selected_idx, item_options, text_renderer, carrot_qty=3):
     draw_pokemon_panel(sub_x, sub_y, sub_w, sub_h)
     
     # Tiêu đề mục vật phẩm
-    text_renderer.draw_text("ITEMS", sub_x + 15, sub_y + sub_h - 25, size=17, color=(15, 15, 20))
+    title = "SELECT MONSTER" if is_target_select else "ITEMS"
+    text_renderer.draw_text(title, sub_x + 15, sub_y + sub_h - 25, size=17, color=(15, 15, 20))
     
     # Vẽ các tùy chọn
     for i, item in enumerate(item_options):
@@ -200,15 +201,22 @@ def draw_item_submenu(selected_idx, item_options, text_renderer, carrot_qty=3):
         if i == selected_idx:
             text_renderer.draw_text("▶", sub_x + 15, item_y, size=16, color=(15, 15, 20))
             
-        qty_str = "x∞" if item == "Net" else f"x{carrot_qty}"
+        if is_target_select:
+            qty_str = ""
+        else:
+            if item == "Net": qty_str = f"x{net_qty}"
+            elif item == "Revive": qty_str = f"x{revive_qty}"
+            else: qty_str = f"x{carrot_qty}"
+            
         text_renderer.draw_text(item, sub_x + 35, item_y, size=16, color=(15, 15, 20))
-        text_renderer.draw_text(qty_str, sub_x + 170, item_y, size=16, color=(15, 15, 20))
+        if qty_str:
+            text_renderer.draw_text(qty_str, sub_x + 170, item_y, size=16, color=(15, 15, 20))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  POKEMON RED PARTY MENU (Màn hình quản lý đội hình)
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_pokemon_party_menu(selected_idx, party, text_renderer, swap_idx=None):
+def draw_pokemon_party_menu(selected_idx, party, text_renderer, swap_idx=None, menu_mode=None):
     """
     Vẽ giao diện danh sách quái vật Pokemon Red cổ điển, hỗ trợ đổi chỗ.
     """
@@ -289,12 +297,19 @@ def draw_pokemon_party_menu(selected_idx, party, text_renderer, swap_idx=None):
             else:
                 text_renderer.draw_text("STANDBY", menu_x + 470, sy + slot_h // 2 - 8, size=14, color=(100, 100, 100))
         else:
-            text_renderer.draw_text("- TRỐNG -", menu_x + 75, sy + slot_h // 2 - 8, size=16, color=(120, 120, 120))
+            text_renderer.draw_text("- EMPTY -", menu_x + 75, sy + slot_h // 2 - 8, size=16, color=(120, 120, 120))
 
     # Dòng hướng dẫn cuối menu
-    guide_txt = "W/S: Chọn  |  Z: Chọn/Đổi chỗ  |  X/Esc: Quay lại"
-    if swap_idx is not None:
-        guide_txt = "Di chuyển con trỏ và nhấn Z để ĐỔI CHỖ | X: Hủy chọn"
+    if menu_mode == "revive":
+        guide_txt = "W/S: Select fainted ally to REVIVE  |  X/Esc: Back"
+    elif menu_mode == "heal":
+        guide_txt = "W/S: Select injured ally to HEAL  |  X/Esc: Back"
+    elif menu_mode == "release":
+        guide_txt = "W/S: Select standby ally to RELEASE  |  X/Esc: Back"
+    else:
+        guide_txt = "W/S: Select  |  Z: Select/Swap  |  X/Esc: Back"
+        if swap_idx is not None:
+            guide_txt = "Move cursor and press Z to SWAP | X: Cancel"
     text_renderer.draw_text(guide_txt, menu_x + menu_w // 2, menu_y + 15, size=15, color=(15, 15, 20), center_x=True)
 
 
@@ -357,8 +372,10 @@ class MessageLog:
         py = y - panel_h
         draw_panel(px, py, panel_w, panel_h, 200)
         for i, line in enumerate(self.lines):
+            is_last = (i == len(self.lines) - 1)
+            color = COL_YELLOW if is_last else (180, 180, 180)
             text_renderer.draw_text(line, x, py + 8 + i * 26,
-                                    size=18, color=COL_WHITE, center_x=True)
+                                    size=18, color=color, center_x=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
