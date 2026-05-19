@@ -235,3 +235,48 @@ class MessageLog:
         for i, line in enumerate(self.lines):
             text_renderer.draw_text(line, x, py + 8 + i * 26,
                                     size=18, color=COL_WHITE, center_x=True)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  OVERWORLD MENU
+# ─────────────────────────────────────────────────────────────────────────────
+def draw_pokemon_panel(x, y, w, h):
+    """
+    Vẽ một panel nền sáng viền kép (Double Border) giống Pokemon Red.
+    """
+    # 1. Vẽ nền sáng màu xám trắng
+    draw_rect_gl(x, y, w, h, (242, 242, 242), alpha=255)
+    
+    # 2. Vẽ viền ngoài dày màu đen bóng
+    draw_rect_outline(x, y, w, h, (15, 15, 20), thickness=2)
+    
+    # 3. Vẽ viền trong mảnh màu đen bóng, lùi vào trong 4 pixel
+    offset = 4
+    draw_rect_outline(x + offset, y + offset, w - offset * 2, h - offset * 2, (15, 15, 20), thickness=1)
+
+
+def draw_overworld_menu(selected_idx, options, text_renderer):
+    """
+    Vẽ Menu Overworld ở bên phải màn hình.
+    """
+    menu_w = 220
+    menu_h = 160
+    menu_x = SCREEN_WIDTH - menu_w - 40
+    menu_y = (SCREEN_HEIGHT - menu_h) // 2 + 50
+    
+    # Vẽ panel Pokemon
+    draw_pokemon_panel(menu_x, menu_y, menu_w, menu_h)
+    
+    # Vẽ các Option
+    start_y = menu_y + menu_h - 45
+    line_gap = 40
+    
+    for i, opt in enumerate(options):
+        opt_y = start_y - i * line_gap
+        # Nếu đang được chọn, vẽ con trỏ ▶ màu đen
+        if i == selected_idx:
+            text_renderer.draw_text("▶", menu_x + 25, opt_y, size=22, color=(15, 15, 20))
+        
+        # Vẽ text nhãn
+        text_renderer.draw_text(opt, menu_x + 55, opt_y, size=22, color=(15, 15, 20))
+

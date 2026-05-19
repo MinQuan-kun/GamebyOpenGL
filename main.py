@@ -111,6 +111,10 @@ def main():
     bush_cd      = 0   # cooldown bụi cỏ
     boss_defeated = False
 
+    ow_menu_active = False
+    ow_menu_selected = 0
+    ow_menu_options = ["ITEM", "PARTY", "EXIT"]
+
     clock = pg.time.Clock()
 
     while True:
@@ -135,7 +139,26 @@ def main():
 
             # ── OVERWORLD ───────────────────────────────────────────────
             elif state == ST_OVERWORLD:
-                pass  # input xử lý trong update bên dưới
+                if event.type == pg.KEYDOWN:
+                    if event.key == pg.K_ESCAPE:
+                        ow_menu_active = not ow_menu_active
+                        if ow_menu_active:
+                            ow_menu_selected = 0
+                    elif ow_menu_active:
+                        if event.key in (pg.K_UP, pg.K_w):
+                            ow_menu_selected = (ow_menu_selected - 1) % len(ow_menu_options)
+                        elif event.key in (pg.K_DOWN, pg.K_s):
+                            ow_menu_selected = (ow_menu_selected + 1) % len(ow_menu_options)
+                        elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
+                            sel_opt = ow_menu_options[ow_menu_selected]
+                            if sel_opt == "EXIT":
+                                pg.quit()
+                                return
+                            elif sel_opt == "ITEM":
+                                print("Chức năng ITEM sẽ được thực hiện trong tương lai.")
+                            elif sel_opt == "PARTY":
+                                print("Chức năng PARTY sẽ được thực hiện trong tương lai.")
+
 
             # ── BATTLE ──────────────────────────────────────────────────
             elif state == ST_BATTLE and battle_sys is not None:
@@ -167,7 +190,10 @@ def main():
 
         elif state == ST_OVERWORLD:
             keys = pg.key.get_pressed()
-            ow_player.update(keys)
+            if not ow_menu_active:
+                ow_player.update(keys)
+            else:
+                ow_player.moving = False
 
             if bush_cd > 0:
                 bush_cd -= 1
@@ -196,18 +222,25 @@ def main():
                     battle_sys = BattleSystem(rabbit, [fox], text_ren, renderers, is_boss=True)
                     state = ST_BATTLE
                     bush_cd = BUSH_COOLDOWN
+                    ow_menu_active = False
                 elif cur_tile == T_BUSH:
                     enemies = spawn_bush1_enemies(rabbit.level)
                     battle_sys = BattleSystem(rabbit, enemies, text_ren, renderers, is_boss=False)
                     state = ST_BATTLE
                     bush_cd = BUSH_COOLDOWN
+                    ow_menu_active = False
                 elif cur_tile == T_BUSH2:
                     enemies = spawn_bush2_enemies(rabbit.level)
                     battle_sys = BattleSystem(rabbit, enemies, text_ren, renderers, is_boss=False)
                     state = ST_BATTLE
                     bush_cd = BUSH_COOLDOWN
+                    ow_menu_active = False
 
             draw_overworld(ow_player, text_ren, renderers=renderers)
+
+            if ow_menu_active:
+                from game.ui import draw_overworld_menu
+                draw_overworld_menu(ow_menu_selected, ow_menu_options, text_ren)
 
             # Mini HUD rabbit
             text_ren.draw_text(
