@@ -63,7 +63,7 @@ def draw_ally_status(rabbit, text_renderer, panel_x=20, panel_y=20):
     Vẽ panel trạng thái Rabbit ở góc dưới trái.
     HP bar trên, Energy bar dưới (ngắn hơn).
     """
-    pw, ph = 340, 80
+    pw, ph = 340, 95
     draw_panel(panel_x, panel_y, pw, ph, 210)
 
     # Tên + cấp
@@ -82,14 +82,15 @@ def draw_ally_status(rabbit, text_renderer, panel_x=20, panel_y=20):
     text_renderer.draw_text(hp_txt, bar_x + bar_w + 6, bar_y, size=13, color=COL_HP_BAR)
 
     # Status icons
+    status_y = bar_y - 20
     if rabbit.poisoned:
-        text_renderer.draw_text("☠ POISON", bar_x, bar_y - 16, size=13, color=COL_PURPLE)
+        text_renderer.draw_text("☠ POISON", bar_x, status_y, size=13, color=COL_PURPLE)
     if rabbit.smoke_miss_bonus:
-        text_renderer.draw_text("💨 SMOKE", bar_x + 90, bar_y - 16, size=13, color=COL_GRAY)
+        text_renderer.draw_text("💨 SMOKE", bar_x + 90, status_y, size=13, color=COL_GRAY)
 
     # Energy bar (ngắn hơn: 70% chiều rộng HP bar)
     en_bar_w = int(bar_w * 0.70)
-    en_bar_y = bar_y - 18
+    en_bar_y = bar_y - 38
     en_bar_h = 10
     draw_hp_bar(bar_x, en_bar_y, en_bar_w, en_bar_h,
                 rabbit.exp, rabbit.exp_to_next,
