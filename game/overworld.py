@@ -119,12 +119,17 @@ class OverworldPlayer:
         elif keys[pg.K_d] or keys[pg.K_RIGHT]: 
             dx =  PLAYER_SPEED
             self.facing = "right"
-        elif keys[pg.K_w] or keys[pg.K_UP]:    
+
+        if keys[pg.K_w] or keys[pg.K_UP]:    
             dy =  PLAYER_SPEED
             self.facing = "up"
         elif keys[pg.K_s] or keys[pg.K_DOWN]:  
             dy = -PLAYER_SPEED
             self.facing = "down"
+
+        if dx != 0 and dy != 0:
+            dx = int(dx * 0.7071)
+            dy = int(dy * 0.7071)
 
         self.moving = (dx != 0 or dy != 0)
 
@@ -357,7 +362,7 @@ def draw_overworld(player, text_ren, cam_x=0, cam_y=0, renderers=None):
     glPopMatrix()
 
     # HUD
-    text_ren.draw_text("WASD: Di chuyển  |  Đi vào bụi cỏ để gặp quái",
+    text_ren.draw_text("WASD: Move  |  Walk into bushes to encounter monsters",
                         SCREEN_WIDTH // 2, 12, size=15, color=(200, 230, 200), center_x=True)
 
 
