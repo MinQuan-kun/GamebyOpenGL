@@ -43,12 +43,16 @@ class TextRenderer:
         self.texture_cache[key] = (texture_id, width, height)
         return texture_id, width, height
 
-    def draw_text(self, text, x, y, size=30, color=(255, 255, 255), center_x=False):
+    def draw_text(self, text, x, y, size=30, color=(255, 255, 255), center_x=False, center_y=False):
         texture_id, width, height = self._get_text_texture(str(text), size, color)
         
         # Nếu muốn căn giữa thì dịch chuyển x
         if center_x:
             x = x - width / 2
+            
+        # Nếu muốn căn giữa y thì dịch chuyển y
+        if center_y:
+            y = y - height / 2
             
         glEnable(GL_TEXTURE_2D)
         glBindTexture(GL_TEXTURE_2D, texture_id)

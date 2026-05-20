@@ -267,14 +267,14 @@ def main():
                                     party_menu_mode = "revive"
                                     party_selected_idx = 0
                         elif "RELEASE" in sel_item:
-                            if len(party) <= 3:
-                                ow_message = "No standby allies to release!"
+                            if len(party) <= 1:
+                                ow_message = "No caught monsters to release!"
                                 ow_post_message_state = ST_ITEM_MENU
                                 state = ST_MESSAGE
                             else:
                                 state = ST_PARTY_MENU
                                 party_menu_mode = "release"
-                                party_selected_idx = 3
+                                party_selected_idx = 1
 
             # ── PARTY MENU ──────────────────────────────────────────────
             elif state == ST_PARTY_MENU:
@@ -300,6 +300,8 @@ def main():
                                 if member.hp <= 0:
                                     inventory["Revive"] = max(0, inventory["Revive"] - 1)
                                     member.hp = member.max_hp // 2
+                                    if hasattr(member, "set_anim"):
+                                        member.set_anim("idle")
                                     member_name = "Rabbit" if isinstance(member, Rabbit) else member.KIND.capitalize()
                                     ow_message = f"Revived {member_name}!"
                                     ow_post_message_state = ST_ITEM_MENU
@@ -338,32 +340,42 @@ def main():
                                 ow_post_message_state = ST_PARTY_MENU
                                 state = ST_MESSAGE
                         elif party_menu_mode == "release":
-                            if party_selected_idx < 3:
-                                ow_message = "Cannot release active battle members!"
-                                ow_post_message_state = ST_PARTY_MENU
-                                state = ST_MESSAGE
-                            elif party_selected_idx >= len(party):
+                            if party_selected_idx >= len(party):
                                 ow_message = "This slot is empty!"
                                 ow_post_message_state = ST_PARTY_MENU
                                 state = ST_MESSAGE
                             else:
                                 member = party[party_selected_idx]
-                                member_name = "Rabbit" if isinstance(member, Rabbit) else member.KIND.capitalize()
-                                party.pop(party_selected_idx)
-                                rabbit = next((m for m in party if isinstance(m, Rabbit)), party[0])
-                                ow_message = f"Released {member_name} back to the wild!"
-                                ow_post_message_state = ST_ITEM_MENU
-                                state = ST_MESSAGE
-                                party_menu_mode = None
+                                if isinstance(member, Rabbit) or party_selected_idx == 0:
+                                    ow_message = "Cannot release Rabbit!"
+                                    ow_post_message_state = ST_PARTY_MENU
+                                    state = ST_MESSAGE
+                                else:
+                                    member_name = member.KIND.capitalize()
+                                    party.pop(party_selected_idx)
+                                    rabbit = next((m for m in party if isinstance(m, Rabbit)), party[0])
+                                    ow_message = f"Released {member_name} back to the wild!"
+                                    ow_post_message_state = ST_ITEM_MENU
+                                    state = ST_MESSAGE
+                                    party_menu_mode = None
                         else:
                             if party_swap_idx is None:
                                 if party_selected_idx < len(party):
-                                    party_swap_idx = party_selected_idx
+                                    if party_selected_idx == 0:
+                                        ow_message = "Cannot move Rabbit!"
+                                        ow_post_message_state = ST_PARTY_MENU
+                                        state = ST_MESSAGE
+                                    else:
+                                        party_swap_idx = party_selected_idx
                             else:
                                 if party_selected_idx < len(party):
-                                    idx1, idx2 = party_swap_idx, party_selected_idx
-                                    party[idx1], party[idx2] = party[idx2], party[idx1]
-                                    rabbit = next((m for m in party if isinstance(m, Rabbit)), party[0])
+                                    if party_selected_idx == 0 or party_swap_idx == 0:
+                                        ow_message = "Cannot move Rabbit!"
+                                        ow_post_message_state = ST_PARTY_MENU
+                                        state = ST_MESSAGE
+                                    else:
+                                        idx1, idx2 = party_swap_idx, party_selected_idx
+                                        party[idx1], party[idx2] = party[idx2], party[idx1]
                                 party_swap_idx = None
 
             # ── MESSAGE STATE ───────────────────────────────────────────
@@ -383,7 +395,7 @@ def main():
                         state = ST_WIN
                         boss_defeated = True
                     else:
-                        if all(m.hp <= 0 for m in party):
+                        if all(m.hp <= 0 for m in party) or rabbit.hp <= 0:
                             state = ST_GAMEOVER
                         else:
                             state = ST_OVERWORLD
@@ -392,11 +404,12 @@ def main():
                             ow_player.last_battle_tile = (ow_player.col(), ow_player.row())
                             
                             if all(m.hp <= 0 for m in party[:3]):
-                                alive = [m for m in party if m.hp > 0]
-                                dead = [m for m in party if m.hp <= 0]
+                                # Giữ nguyên Thỏ ở index 0, chỉ dồn các quái còn sống từ index 1 trở đi lên
+                                other_members = party[1:]
+                                alive = [m for m in other_members if m.hp > 0]
+                                dead = [m for m in other_members if m.hp <= 0]
                                 party.clear()
-                                party.extend(alive + dead)
-                                rabbit = next((m for m in party if isinstance(m, Rabbit)), party[0])
+                                party.extend([rabbit] + alive + dead)
                     battle_sys = None
 
         # ── UPDATE ──────────────────────────────────────────────────────────
@@ -509,16 +522,16 @@ def main():
                     draw_overworld_menu(ow_menu_selected, ow_menu_options, text_ren)
             
             # Draw message box
-            from game.ui import draw_panel
+            from game.ui import draw_pokemon_panel
             panel_w = 500
             panel_h = 80
             panel_x = (SCREEN_WIDTH - panel_w) // 2
             panel_y = 40
-            draw_panel(panel_x, panel_y, panel_w, panel_h, 230)
-            text_ren.draw_text(ow_message, SCREEN_WIDTH // 2, panel_y + panel_h // 2 - 8,
-                               size=18, color=(15, 15, 20), center_x=True)
-            text_ren.draw_text("Press Z or ENTER to continue...", SCREEN_WIDTH // 2, panel_y + 12,
-                               size=12, color=(120, 120, 120), center_x=True)
+            draw_pokemon_panel(panel_x, panel_y, panel_w, panel_h)
+            text_ren.draw_text(ow_message, SCREEN_WIDTH // 2, panel_y + 48,
+                               size=18, color=(15, 15, 20), center_x=True, center_y=True)
+            text_ren.draw_text("Press Z or ENTER to continue...", SCREEN_WIDTH // 2, panel_y + 20,
+                               size=12, color=(120, 120, 120), center_x=True, center_y=True)
 
         elif state == ST_BATTLE and battle_sys is not None:
             battle_sys.update()

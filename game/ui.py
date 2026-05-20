@@ -129,9 +129,7 @@ CMD_GAP = 6
 def draw_command_box(selected_cmd, actor_name, text_renderer,
                      ranged_uses=0, enabled=True, commands=None):
     """
-    Vẽ hộp lệnh dọc 1 cột ở dưới phải.
-    selected_cmd: index 0 đến len(commands)-1
-    actor_name: tên nhân vật đang hành động (hiển thị phía trên box)
+    Vẽ hộp lệnh dọc 1 cột ở dưới phải kiểu Pokemon Red (khung trắng viền kép).
     """
     if commands is None:
         commands = ["Attack", "Ranged Attack", "Guard", "Item", "Run"]
@@ -143,33 +141,31 @@ def draw_command_box(selected_cmd, actor_name, text_renderer,
     box_x = SCREEN_WIDTH - total_w - 20
     box_y = 20
 
-    draw_panel(box_x, box_y, total_w, total_h, 220)
+    # Vẽ khung Pokemon
+    draw_pokemon_panel(box_x, box_y, total_w, total_h)
 
-    # Tên nhân vật hành động
-    name_y = box_y + total_h - 22
-    text_renderer.draw_text(f"► {actor_name}", box_x + 10, name_y, size=17, color=COL_YELLOW)
-
-    if not enabled:
-        return box_x, box_y, total_w, total_h
+    # Tên nhân vật hành động (chữ đen) - Loại bỏ tam giác ► khỏi tên quái vật
+    name_y = box_y + total_h - 25
+    text_renderer.draw_text(f"{actor_name}", box_x + 15, name_y, size=17, color=(15, 15, 20), center_y=True)
 
     for i, label in enumerate(commands):
-        cx = box_x + 10
-        # Đảo chiều Y để vẽ Attack ở trên cùng, Run ở dưới cùng
-        cy = box_y + 10 + (rows - 1 - i) * (CMD_H + CMD_GAP)
+        cx = box_x + 15
+        cy = box_y + 12 + (rows - 1 - i) * (CMD_H + CMD_GAP)
+        mid_y = cy + CMD_H // 2
 
-        is_sel = (i == selected_cmd)
-        bg = (60, 100, 180) if is_sel else (30, 40, 60)
-        border = COL_YELLOW if is_sel else (80, 100, 140)
+        is_sel = (i == selected_cmd) and enabled
+        col_txt = (15, 15, 20)
 
-        draw_rect_gl(cx, cy, CMD_W, CMD_H, bg, 220)
-        draw_rect_outline(cx, cy, CMD_W, CMD_H, border, 2 if is_sel else 1)
-
-        # Disabled style cho Ranged khi hết lượt
-        col_txt = COL_WHITE
+        # Ranged Attack hết đạn thì xám chữ
         if label.startswith("Ranged Attack") and ranged_uses <= 0:
-            col_txt = COL_GRAY
-        text_renderer.draw_text(label, cx + CMD_W // 2, cy + CMD_H // 2 - 8,
-                                size=16, color=col_txt, center_x=True)
+            col_txt = (120, 120, 120)
+
+        if is_sel:
+            # Vẽ con trỏ ► thay vì ▶
+            text_renderer.draw_text("►", cx, mid_y, size=16, color=(15, 15, 20), center_y=True)
+            text_renderer.draw_text(label, cx + 22, mid_y, size=16, color=col_txt, center_y=True)
+        else:
+            text_renderer.draw_text(label, cx + 22, mid_y, size=16, color=col_txt, center_y=True)
 
     return box_x, box_y, total_w, total_h
 
@@ -197,9 +193,9 @@ def draw_item_submenu(selected_idx, item_options, text_renderer, net_qty=100, ca
     for i, item in enumerate(item_options):
         item_y = sub_y + sub_h - 60 - i * 35
         
-        # Con trỏ chọn ▶
+        # Con trỏ chọn ► thay vì ▶
         if i == selected_idx:
-            text_renderer.draw_text("▶", sub_x + 15, item_y, size=16, color=(15, 15, 20))
+            text_renderer.draw_text("►", sub_x + 15, item_y, size=16, color=(15, 15, 20), center_y=True)
             
         if is_target_select:
             qty_str = ""
@@ -208,9 +204,9 @@ def draw_item_submenu(selected_idx, item_options, text_renderer, net_qty=100, ca
             elif item == "Revive": qty_str = f"x{revive_qty}"
             else: qty_str = f"x{carrot_qty}"
             
-        text_renderer.draw_text(item, sub_x + 35, item_y, size=16, color=(15, 15, 20))
+        text_renderer.draw_text(item, sub_x + 35, item_y, size=16, color=(15, 15, 20), center_y=True)
         if qty_str:
-            text_renderer.draw_text(qty_str, sub_x + 170, item_y, size=16, color=(15, 15, 20))
+            text_renderer.draw_text(qty_str, sub_x + 170, item_y, size=16, color=(15, 15, 20), center_y=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -259,9 +255,9 @@ def draw_pokemon_party_menu(selected_idx, party, text_renderer, swap_idx=None, m
             member = party[i]
             kind = "Rabbit" if isinstance(member, Rabbit) else member.KIND.capitalize()
             
-            # Con trỏ chọn ▶
+            # Con trỏ chọn ► thay vì ▶
             if is_sel:
-                text_renderer.draw_text("▶", menu_x + 45, sy + slot_h // 2 - 8, size=18, color=(15, 15, 20))
+                text_renderer.draw_text("►", menu_x + 45, sy + slot_h // 2, size=18, color=(15, 15, 20), center_y=True)
                 
             # Tên quái vật
             text_renderer.draw_text(kind, menu_x + 75, sy + slot_h - 26, size=18, color=(15, 15, 20))
@@ -348,13 +344,13 @@ class FloatingText:
 # ─────────────────────────────────────────────────────────────────────────────
 class MessageLog:
     def __init__(self, max_lines=4):
-        self.lines    = []
+        self.lines    = []  # list of tuples: (msg, is_enemy)
         self.max_lines = max_lines
         self.timer    = 0
-        self.display_duration = 120  # frames
+        self.display_duration = 420  # frames (7 giây ở 60 FPS)
 
-    def push(self, msg):
-        self.lines.append(msg)
+    def push(self, msg, is_enemy=False):
+        self.lines.append((msg, is_enemy))
         if len(self.lines) > self.max_lines:
             self.lines.pop(0)
         self.timer = self.display_duration
@@ -363,30 +359,39 @@ class MessageLog:
         if self.timer > 0:
             self.timer -= 1
 
+    def clear(self):
+        self.lines = []
+        self.timer = 0
+
     def draw(self, text_renderer, x=SCREEN_WIDTH // 2, y=180):
-        if self.timer <= 0:
+        if self.timer <= 0 or not self.lines:
             return
         panel_w = 560
         panel_h = len(self.lines) * 26 + 16
         px = x - panel_w // 2
         py = y - panel_h
-        draw_panel(px, py, panel_w, panel_h, 200)
-        for i, line in enumerate(self.lines):
+        
+        # Đổi màu nền hộp thông báo: phe địch màu hồng nhạt, phe ta màu xanh nước biển nhạt
+        last_line_is_enemy = self.lines[-1][1]
+        bg_col = (255, 235, 235) if last_line_is_enemy else (235, 245, 255)
+        
+        draw_pokemon_panel(px, py, panel_w, panel_h, bg_col)
+        for i, (line, is_enem) in enumerate(self.lines):
             is_last = (i == len(self.lines) - 1)
-            color = COL_YELLOW if is_last else (180, 180, 180)
-            text_renderer.draw_text(line, x, py + 8 + i * 26,
-                                    size=18, color=color, center_x=True)
+            color = (180, 20, 20) if is_last else (15, 15, 20)
+            text_renderer.draw_text(line, x, py + 8 + i * 26 + 13,
+                                    size=18, color=color, center_x=True, center_y=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  OVERWORLD MENU
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_pokemon_panel(x, y, w, h):
+def draw_pokemon_panel(x, y, w, h, bg_color=(242, 242, 242)):
     """
     Vẽ một panel nền sáng viền kép (Double Border) giống Pokemon Red.
     """
-    # 1. Vẽ nền sáng màu xám trắng
-    draw_rect_gl(x, y, w, h, (242, 242, 242), alpha=255)
+    # 1. Vẽ nền sáng màu tùy chọn
+    draw_rect_gl(x, y, w, h, bg_color, alpha=255)
     
     # 2. Vẽ viền ngoài dày màu đen bóng
     draw_rect_outline(x, y, w, h, (15, 15, 20), thickness=2)
@@ -398,10 +403,13 @@ def draw_pokemon_panel(x, y, w, h):
 
 def draw_overworld_menu(selected_idx, options, text_renderer):
     """
-    Vẽ Menu Overworld ở bên phải màn hình.
+    Vẽ Menu Overworld ở bên phải màn hình, kích cỡ rộng rãi hơn.
     """
-    menu_w = 220
-    menu_h = 160
+    menu_w = 300
+    line_gap = 50
+    text_size = 22  # Giữ nguyên cỡ chữ 22 theo yêu cầu của bạn
+    
+    menu_h = len(options) * line_gap + 40
     menu_x = SCREEN_WIDTH - menu_w - 40
     menu_y = (SCREEN_HEIGHT - menu_h) // 2 + 50
     
@@ -410,14 +418,13 @@ def draw_overworld_menu(selected_idx, options, text_renderer):
     
     # Vẽ các Option
     start_y = menu_y + menu_h - 45
-    line_gap = 40
     
     for i, opt in enumerate(options):
         opt_y = start_y - i * line_gap
-        # Nếu đang được chọn, vẽ con trỏ ▶ màu đen
+        # Nếu đang được chọn, vẽ con trỏ ► màu đen thay vì ▶
         if i == selected_idx:
-            text_renderer.draw_text("▶", menu_x + 25, opt_y, size=22, color=(15, 15, 20))
+            text_renderer.draw_text("►", menu_x + 30, opt_y, size=text_size, color=(15, 15, 20), center_y=True)
         
         # Vẽ text nhãn
-        text_renderer.draw_text(opt, menu_x + 55, opt_y, size=22, color=(15, 15, 20))
+        text_renderer.draw_text(opt, menu_x + 65, opt_y, size=text_size, color=(15, 15, 20), center_y=True)
 
