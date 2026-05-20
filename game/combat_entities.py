@@ -59,7 +59,7 @@ class Rabbit:
         self.draw_y = self.base_y
 
     def _calc_exp_to_next(self):
-        return 20 + self.level * 15
+        return self.level
 
     def _recalc_stats(self):
         self.max_hp  = _level_scale(RABBIT_BASE_HP,  self.level, 0.12)
@@ -190,10 +190,10 @@ class BaseEnemy:
         self.level = max(1, level)
         self.max_hp  = _level_scale(self.BASE_HP,  self.level, 0.12)
         self.atk     = _level_scale(self.BASE_ATK, self.level, 0.10)
-        self.exp_reward = _level_scale(self.BASE_EXP, self.level, 0.20)
+        self.exp_reward = max(1, self.level)
         self.hp = self.max_hp
         self.exp = 0
-        self.exp_to_next = 20 + self.level * 15
+        self.exp_to_next = self.level
         # Animation
         self.anim_state = "idle"
         self.anim_timer = 0
@@ -206,6 +206,8 @@ class BaseEnemy:
         self.draw_y = self.base_y
         # Trạng thái
         self.is_alive_flag = True
+        self.smoke_miss_bonus = False
+        self.smoke_turns = 0
 
     def gain_exp(self, amount):
         """Cộng EXP cho quái vật đồng hành, tự động lên cấp và nâng stats."""
@@ -223,7 +225,7 @@ class BaseEnemy:
                 self.hp = min(self.hp + (self.max_hp - old_max), self.max_hp)
             else:
                 self.hp = 0
-            self.exp_to_next = 20 + self.level * 15
+            self.exp_to_next = self.level
             leveled = True
         return leveled
 
@@ -330,8 +332,8 @@ class Bee(BaseEnemy):
 # ─────────────────────────────────────────────────────────────────────────────
 class Fox(BaseEnemy):
     KIND     = "fox"
-    BASE_HP  = 80
-    BASE_ATK = 14
+    BASE_HP  = 75
+    BASE_ATK = 12
     BASE_EXP = 0       # Boss không cho EXP thông thường
     SPEED_ORDER = 20   # Hành động sau mọi thứ
 

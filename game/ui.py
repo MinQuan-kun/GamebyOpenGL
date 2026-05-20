@@ -1,5 +1,6 @@
 # game/ui.py
 # Các hàm vẽ UI cho battle và overworld
+import math
 from OpenGL.GL import *
 import pygame as pg
 from utils.constants import *
@@ -58,7 +59,7 @@ def draw_panel(x, y, w, h, alpha=200):
 # ─────────────────────────────────────────────────────────────────────────────
 #  ALLY STATUS PANEL (dưới màn hình, hiển thị HP + Energy Rabbit)
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_ally_status(ally, text_renderer, panel_x=20, panel_y=20):
+def draw_ally_status(ally, text_renderer, panel_x=20, panel_y=20, is_active=False):
     """
     Vẽ panel trạng thái của đồng minh ở góc dưới trái.
     HP bar trên, Energy bar dưới (ngắn hơn).
@@ -70,7 +71,8 @@ def draw_ally_status(ally, text_renderer, panel_x=20, panel_y=20):
     from game.combat_entities import Rabbit
     name = "Rabbit" if isinstance(ally, Rabbit) else ally.KIND.capitalize()
     lv_str = f"{name}  Lv.{ally.level}"
-    text_renderer.draw_text(lv_str, panel_x + 8, panel_y + ph - 22, size=17, color=COL_YELLOW)
+    color = COL_YELLOW if is_active else (15, 15, 20)
+    text_renderer.draw_text(lv_str, panel_x + 8, panel_y + ph - 22, size=17, color=color)
 
     # HP bar
     bar_x = panel_x + 8
@@ -106,8 +108,12 @@ def draw_ally_status(ally, text_renderer, panel_x=20, panel_y=20):
 # ─────────────────────────────────────────────────────────────────────────────
 #  ENEMY STATUS (hiển thị HP trên đầu địch)
 # ─────────────────────────────────────────────────────────────────────────────
-def draw_enemy_status(enemy, ex, ey, ew, eh, text_renderer, index=0):
-    """Vẽ thanh HP nhỏ phía trên sprite địch."""
+def draw_enemy_status(enemy, ex, ey, ew, eh, text_renderer, index=0, is_active=False):
+    """Vẽ thanh HP nhỏ phía trên sprite địch. Chỉ hiển thị khi quái còn sống."""
+    # Chỉ vẽ thông tin nếu quái còn sống
+    if not enemy.is_alive():
+        return
+    
     bw, bh = 80, 10
     bx = ex + ew // 2 - bw // 2
     by = ey + eh + 5
@@ -116,15 +122,83 @@ def draw_enemy_status(enemy, ex, ey, ew, eh, text_renderer, index=0):
                 COL_FOX_HP if enemy.KIND == "fox" else COL_HP_BAR,
                 COL_HP_BG)
     lbl = f"Lv.{enemy.level} {enemy.KIND.capitalize()}"
-    text_renderer.draw_text(lbl, bx, by + bh + 2, size=13, color=COL_WHITE)
+    color = COL_YELLOW if is_active else (15, 15, 20)
+    text_renderer.draw_text(lbl, bx, by + bh + 2, size=13, color=color)
+
+
+def draw_ally_sprite_status(ally, ax, ay, aw, ah, text_renderer, is_active=False):
+    """Vẽ tên + cấp phía trên sprite đồng minh (tương tự quái đối thủ)."""
+    from game.combat_entities import Rabbit
+    name = "Rabbit" if isinstance(ally, Rabbit) else ally.KIND.capitalize()
+    lbl = f"Lv.{ally.level} {name}"
+    # Vị trí: trên cùng của sprite, căn giữa
+    tx = ax + aw // 2
+    ty = ay + ah + 5
+    color = COL_YELLOW if is_active else (15, 15, 20)
+    text_renderer.draw_text(lbl, tx, ty, size=13, color=color, center_x=True)
+
+
+def draw_target_aura(cx, cy, w, h, anim_frame=0):
+    """
+    Vẽ hiệu ứng aura pulsante brilhante xung quanh mục tiêu.
+    anim_frame: frame để tạo hiệu ứng pulsante
+    """
+    import math
+    # Tạo hiệu ứng pulsante (0-1-0)
+    pulse = (math.sin(anim_frame * 0.1) + 1) / 2  # Giá trị từ 0 đến 1
+    
+    # Tâm của sprite
+    cx_center = cx + w // 2
+    cy_center = cy + h // 2
+    
+    # Bán kính cơ bản
+    base_radius = max(w, h) // 2 + 20
+    
+    # Vẽ 3 lớp aura với độ trong suốt giảm dần
+    for layer in range(3):
+        # Bán kính tăng cho mỗi lớp
+        radius = base_radius + (layer * 15) + (pulse * 10)
+        
+        # Độ trong suốt giảm dần
+        alpha = int(120 * (1 - layer * 0.3) * (1 - pulse * 0.3))
+        alpha = max(10, min(255, alpha))
+        
+        # Màu vàng-cam để thể hiện energy
+        color = (255, 200, 80)
+        
+        # Vẽ hình tròn
+        draw_circle_aura(cx_center, cy_center, radius, color, alpha, segments=24)
+
+
+def draw_circle_aura(cx, cy, radius, color, alpha, segments=24):
+    """Vẽ hình tròn với alpha cho hiệu ứng aura."""
+    r, g, b = color[0]/255, color[1]/255, color[2]/255
+    a = alpha / 255
+    
+    glDisable(GL_TEXTURE_2D)
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    glColor4f(r, g, b, a)
+    
+    glBegin(GL_TRIANGLE_FAN)
+    glVertex2f(cx, cy)  # Tâm
+    for i in range(segments + 1):
+        angle = 2 * math.pi * i / segments
+        x = cx + radius * math.cos(angle)
+        y = cy + radius * math.sin(angle)
+        glVertex2f(x, y)
+    glEnd()
+    
+    glColor4f(1, 1, 1, 1)
+    glDisable(GL_BLEND)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  COMMAND BOX (dưới phải)
 # ─────────────────────────────────────────────────────────────────────────────
 COMMANDS = ["Attack", "Ranged Attack", "Guard", "Item", "Run"]
-CMD_W, CMD_H = 180, 38
-CMD_GAP = 6
+CMD_W, CMD_H = 155, 28
+CMD_GAP = 4
 
 def draw_command_box(selected_cmd, actor_name, text_renderer,
                      ranged_uses=0, enabled=True, commands=None):
@@ -136,8 +210,8 @@ def draw_command_box(selected_cmd, actor_name, text_renderer,
         
     cols = 1
     rows = len(commands)
-    total_w = CMD_W + 20
-    total_h = rows * CMD_H + (rows - 1) * CMD_GAP + 50
+    total_w = CMD_W + 15
+    total_h = rows * CMD_H + (rows - 1) * CMD_GAP + 35
     box_x = SCREEN_WIDTH - total_w - 20
     box_y = 20
 
@@ -145,15 +219,15 @@ def draw_command_box(selected_cmd, actor_name, text_renderer,
     draw_pokemon_panel(box_x, box_y, total_w, total_h)
 
     # Tên nhân vật hành động (chữ đen) - Loại bỏ tam giác ► khỏi tên quái vật
-    name_y = box_y + total_h - 25
-    text_renderer.draw_text(f"{actor_name}", box_x + 15, name_y, size=17, color=(15, 15, 20), center_y=True)
+    name_y = box_y + total_h - 18
+    text_renderer.draw_text(f"{actor_name}", box_x + 15, name_y, size=16, color=(15, 15, 20), center_y=True)
 
     for i, label in enumerate(commands):
         cx = box_x + 15
-        cy = box_y + 12 + (rows - 1 - i) * (CMD_H + CMD_GAP)
+        cy = box_y + 8 + (rows - 1 - i) * (CMD_H + CMD_GAP)
         mid_y = cy + CMD_H // 2
 
-        is_sel = (i == selected_cmd) and enabled
+        is_sel = (i == selected_cmd)  # Luôn hiển thị tam giác cho lệnh được chọn
         col_txt = (15, 15, 20)
 
         # Ranged Attack hết đạn thì xám chữ
@@ -161,11 +235,11 @@ def draw_command_box(selected_cmd, actor_name, text_renderer,
             col_txt = (120, 120, 120)
 
         if is_sel:
-            # Vẽ con trỏ ► thay vì ▶
-            text_renderer.draw_text("►", cx, mid_y, size=16, color=(15, 15, 20), center_y=True)
-            text_renderer.draw_text(label, cx + 22, mid_y, size=16, color=col_txt, center_y=True)
+            # Vẽ con trỏ ► luôn hiển thị cho lệnh được chọn
+            text_renderer.draw_text("►", cx, mid_y, size=15, color=(15, 15, 20), center_y=True)
+            text_renderer.draw_text(label, cx + 18, mid_y, size=15, color=col_txt, center_y=True)
         else:
-            text_renderer.draw_text(label, cx + 22, mid_y, size=16, color=col_txt, center_y=True)
+            text_renderer.draw_text(label, cx + 18, mid_y, size=15, color=col_txt, center_y=True)
 
     return box_x, box_y, total_w, total_h
 
@@ -267,7 +341,7 @@ def draw_pokemon_party_menu(selected_idx, party, text_renderer, swap_idx=None, m
             
             # Thanh HP
             bar_x = menu_x + 75
-            bar_y = sy + 15
+            bar_y = sy + 17
             bar_w = 200
             bar_h = 10
             # Màu thanh máu tùy lượng HP
@@ -287,26 +361,30 @@ def draw_pokemon_party_menu(selected_idx, party, text_renderer, swap_idx=None, m
             hp_txt = f"{member.hp}/ {member.max_hp}"
             text_renderer.draw_text(hp_txt, menu_x + 290, sy + 12, size=16, color=(15, 15, 20))
             
+            # EXP text
+            exp_txt = f"EXP: {member.exp}/ {member.exp_to_next}"
+            text_renderer.draw_text(exp_txt, menu_x + 380, sy + 12, size=16, color=(15, 15, 20))
+            
             # Trạng thái ra trận (3 slots đầu)
             if i < 3:
-                text_renderer.draw_text("BATTLE", menu_x + 470, sy + slot_h // 2 - 8, size=14, color=(40, 130, 40))
+                text_renderer.draw_text("BATTLE", menu_x + 530, sy + 12, size=14, color=(40, 130, 40))
             else:
-                text_renderer.draw_text("STANDBY", menu_x + 470, sy + slot_h // 2 - 8, size=14, color=(100, 100, 100))
+                text_renderer.draw_text("STANDBY", menu_x + 530, sy + 12, size=14, color=(100, 100, 100))
         else:
             text_renderer.draw_text("- EMPTY -", menu_x + 75, sy + slot_h // 2 - 8, size=16, color=(120, 120, 120))
 
     # Dòng hướng dẫn cuối menu
     if menu_mode == "revive":
-        guide_txt = "W/S: Select fainted ally to REVIVE  |  X/Esc: Back"
+        guide_txt = "WASD/Arrows: Select fainted ally to REVIVE  |  X/Esc: Back"
     elif menu_mode == "heal":
-        guide_txt = "W/S: Select injured ally to HEAL  |  X/Esc: Back"
+        guide_txt = "WASD/Arrows: Select injured ally to HEAL  |  X/Esc: Back"
     elif menu_mode == "release":
-        guide_txt = "W/S: Select standby ally to RELEASE  |  X/Esc: Back"
+        guide_txt = "WASD/Arrows: Select standby ally to RELEASE  |  X/Esc: Back"
     else:
-        guide_txt = "W/S: Select  |  Z: Select/Swap  |  X/Esc: Back"
+        guide_txt = "WASD/Arrows: Select  |  Z: Select/Swap  |  X/Esc: Back"
         if swap_idx is not None:
             guide_txt = "Move cursor and press Z to SWAP | X: Cancel"
-    text_renderer.draw_text(guide_txt, menu_x + menu_w // 2, menu_y + 15, size=15, color=(15, 15, 20), center_x=True)
+    text_renderer.draw_text(guide_txt, menu_x + menu_w // 2, menu_y + 15, size=18, color=(15, 15, 20), center_x=True)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -344,15 +422,17 @@ class FloatingText:
 # ─────────────────────────────────────────────────────────────────────────────
 class MessageLog:
     def __init__(self, max_lines=4):
-        self.lines    = []  # list of tuples: (msg, is_enemy)
+        self.all_lines = []  # list of tuples: (msg, is_enemy)
         self.max_lines = max_lines
         self.timer    = 0
         self.display_duration = 420  # frames (7 giây ở 60 FPS)
+        self.scroll_offset = 0
 
     def push(self, msg, is_enemy=False):
-        self.lines.append((msg, is_enemy))
-        if len(self.lines) > self.max_lines:
-            self.lines.pop(0)
+        self.all_lines.append((msg, is_enemy))
+        if len(self.all_lines) > 200:
+            self.all_lines.pop(0)
+        self.scroll_offset = 0
         self.timer = self.display_duration
 
     def update(self):
@@ -360,27 +440,56 @@ class MessageLog:
             self.timer -= 1
 
     def clear(self):
-        self.lines = []
+        self.all_lines = []
         self.timer = 0
+        self.scroll_offset = 0
+
+    def scroll_up(self):
+        if len(self.all_lines) > self.max_lines:
+            max_scroll = len(self.all_lines) - self.max_lines
+            self.scroll_offset = min(max_scroll, self.scroll_offset + 1)
+            self.timer = self.display_duration
+
+    def scroll_down(self):
+        self.scroll_offset = max(0, self.scroll_offset - 1)
+        self.timer = self.display_duration
 
     def draw(self, text_renderer, x=SCREEN_WIDTH // 2, y=180):
-        if self.timer <= 0 or not self.lines:
+        if self.timer <= 0 or not self.all_lines:
             return
-        panel_w = 560
-        panel_h = len(self.lines) * 26 + 16
+            
+        start_idx = max(0, len(self.all_lines) - self.scroll_offset - self.max_lines)
+        end_idx = max(0, len(self.all_lines) - self.scroll_offset)
+        visible_lines = self.all_lines[start_idx:end_idx]
+        if not visible_lines:
+            return
+            
+        panel_w = 800
+        panel_h = len(visible_lines) * 26 + 16
         px = x - panel_w // 2
         py = y - panel_h
         
-        # Đổi màu nền hộp thông báo: phe địch màu hồng nhạt, phe ta màu xanh nước biển nhạt
-        last_line_is_enemy = self.lines[-1][1]
+        last_line_is_enemy = visible_lines[-1][1]
         bg_col = (255, 235, 235) if last_line_is_enemy else (235, 245, 255)
         
         draw_pokemon_panel(px, py, panel_w, panel_h, bg_col)
-        for i, (line, is_enem) in enumerate(self.lines):
-            is_last = (i == len(self.lines) - 1)
+        for i, (line, is_enem) in enumerate(visible_lines):
+            is_last = (i == len(visible_lines) - 1) and (self.scroll_offset == 0)
             color = (180, 20, 20) if is_last else (15, 15, 20)
             text_renderer.draw_text(line, x, py + 8 + i * 26 + 13,
                                     size=18, color=color, center_x=True, center_y=True)
+
+        if len(self.all_lines) > self.max_lines:
+            sb_x = px + panel_w - 12
+            sb_w = 4
+            sb_h = panel_h - 16
+            sb_y = py + 8
+            draw_rect_gl(sb_x, sb_y, sb_w, sb_h, (200, 200, 200), 255)
+            max_scroll = len(self.all_lines) - self.max_lines
+            thumb_h = max(8, int((self.max_lines / len(self.all_lines)) * sb_h))
+            fraction = (max_scroll - self.scroll_offset) / max_scroll if max_scroll > 0 else 0
+            thumb_y = sb_y + fraction * (sb_h - thumb_h)
+            draw_rect_gl(sb_x, thumb_y, sb_w, thumb_h, (100, 100, 100), 255)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ from game.combat_entities import (
 )
 from game.ui import (
     draw_rect_gl, draw_rect_outline, draw_panel,
-    draw_ally_status, draw_enemy_status, draw_command_box,
+    draw_ally_status, draw_enemy_status, draw_ally_sprite_status, draw_target_aura, draw_command_box,
     FloatingText, MessageLog, COL_WHITE, COL_YELLOW,
     COL_RED, COL_GREEN, COL_ORANGE, COL_PURPLE, COL_GRAY
 )
@@ -412,6 +412,8 @@ class BattleSystem:
         self.result       = None   # "win" / "lose" / "run"
         self.exp_gained   = 0
         self.leveled_up   = False
+        self.caught_enemy_targets = []  # Quái đã bị bắt trong trận
+
 
         # Reset trạng thái tất cả quái vật đồng minh
         for ally in self.party:
@@ -428,9 +430,10 @@ class BattleSystem:
                 ally.set_anim("idle")
 
         # Fox: lên kế hoạch trước
+        any_smoke = any(getattr(m, 'smoke_miss_bonus', False) for m in self.battle_party if m.is_alive())
         for e in self.enemies:
             if isinstance(e, Fox):
-                e.plan_turn(rabbit_has_smoke=getattr(self.rabbit, 'smoke_miss_bonus', False))
+                e.plan_turn(rabbit_has_smoke=any_smoke)
 
         self.result_timer = 0
         self.ally_queue = []
@@ -510,6 +513,12 @@ class BattleSystem:
 
     # ── Input xử lý ─────────────────────────────────────────────────────────
     def handle_input(self, event):
+        if event.type == pg.MOUSEBUTTONDOWN:
+            if event.button == 4:
+                self.msg_log.scroll_down()
+            elif event.button == 5:
+                self.msg_log.scroll_up()
+
         if self.state not in (BS_PLAYER_SELECT, BS_TARGET_SELECT, "item_select", "catch_target_select", "revive_target_select", "heal_target_select"):
             return
 
@@ -546,9 +555,9 @@ class BattleSystem:
 
         elif self.state == "item_select":
             if event.type == pg.KEYDOWN:
-                if event.key in (pg.K_UP, pg.K_w):
+                if event.key in (pg.K_UP, pg.K_w, pg.K_LEFT, pg.K_a):
                     self.selected_item_idx = (self.selected_item_idx - 1) % len(self.item_options)
-                elif event.key in (pg.K_DOWN, pg.K_s):
+                elif event.key in (pg.K_DOWN, pg.K_s, pg.K_RIGHT, pg.K_d):
                     self.selected_item_idx = (self.selected_item_idx + 1) % len(self.item_options)
                 elif event.key in (pg.K_ESCAPE, pg.K_x, pg.K_BACKSPACE):
                     self.state = BS_PLAYER_SELECT
@@ -578,9 +587,9 @@ class BattleSystem:
 
         elif self.state == "revive_target_select":
             if event.type == pg.KEYDOWN:
-                if event.key in (pg.K_UP, pg.K_w):
+                if event.key in (pg.K_UP, pg.K_w, pg.K_LEFT, pg.K_a):
                     self.selected_target = (self.selected_target - 1) % len(self.revive_targets)
-                elif event.key in (pg.K_DOWN, pg.K_s):
+                elif event.key in (pg.K_DOWN, pg.K_s, pg.K_RIGHT, pg.K_d):
                     self.selected_target = (self.selected_target + 1) % len(self.revive_targets)
                 elif event.key in (pg.K_ESCAPE, pg.K_x, pg.K_BACKSPACE):
                     self.state = "item_select"
@@ -590,9 +599,9 @@ class BattleSystem:
 
         elif self.state == "heal_target_select":
             if event.type == pg.KEYDOWN:
-                if event.key in (pg.K_UP, pg.K_w):
+                if event.key in (pg.K_UP, pg.K_w, pg.K_LEFT, pg.K_a):
                     self.selected_target = (self.selected_target - 1) % len(self.heal_targets)
-                elif event.key in (pg.K_DOWN, pg.K_s):
+                elif event.key in (pg.K_DOWN, pg.K_s, pg.K_RIGHT, pg.K_d):
                     self.selected_target = (self.selected_target + 1) % len(self.heal_targets)
                 elif event.key in (pg.K_ESCAPE, pg.K_x, pg.K_BACKSPACE):
                     self.state = "item_select"
@@ -602,9 +611,9 @@ class BattleSystem:
 
         elif self.state == "catch_target_select":
             if event.type == pg.KEYDOWN:
-                if event.key in (pg.K_UP, pg.K_w):
+                if event.key in (pg.K_UP, pg.K_w, pg.K_LEFT, pg.K_a):
                     self.selected_target = (self.selected_target - 1) % len(living)
-                elif event.key in (pg.K_DOWN, pg.K_s):
+                elif event.key in (pg.K_DOWN, pg.K_s, pg.K_RIGHT, pg.K_d):
                     self.selected_target = (self.selected_target + 1) % len(living)
                 elif event.key in (pg.K_ESCAPE, pg.K_x, pg.K_BACKSPACE):
                     self.state = "item_select"
@@ -619,9 +628,9 @@ class BattleSystem:
 
         elif self.state == BS_TARGET_SELECT:
             if event.type == pg.KEYDOWN:
-                if event.key in (pg.K_UP, pg.K_w):
+                if event.key in (pg.K_UP, pg.K_w, pg.K_LEFT, pg.K_a):
                     self.selected_target = (self.selected_target - 1) % len(living)
-                elif event.key in (pg.K_DOWN, pg.K_s):
+                elif event.key in (pg.K_DOWN, pg.K_s, pg.K_RIGHT, pg.K_d):
                     self.selected_target = (self.selected_target + 1) % len(living)
                 elif event.key in (pg.K_ESCAPE, pg.K_x, pg.K_BACKSPACE):
                     self.state = BS_PLAYER_SELECT
@@ -726,6 +735,15 @@ class BattleSystem:
 
         # Animation hồi máu khi dùng Carrot.
         self._play_anim(target, "heal", fallback="idle")
+        
+        # Phát SFX khi dùng cà rốt hồi máu
+        try:
+            if pg.mixer.get_init():
+                sfx = pg.mixer.Sound("assets/sounds/heal_sfx.mp3")
+                sfx.set_volume(0.8)
+                sfx.play()
+        except Exception as e:
+            print(f"Cannot play heal SFX: {e}")
 
         self.anim_data = {
             "type": "heal",
@@ -834,10 +852,8 @@ class BattleSystem:
             proj_type = None
 
         # Chọn mục tiêu để projectile bay tới
-        target = self.rabbit if self.rabbit.is_alive() else None
-        if target is None:
-            living_allies = [m for m in self.battle_party if m.is_alive()]
-            target = random.choice(living_allies) if living_allies else self.rabbit
+        living_allies = [m for m in self.battle_party if m.is_alive()]
+        target = random.choice(living_allies) if living_allies else self.rabbit
 
         self.anim_data = {
             "type": "fox_act",
@@ -885,16 +901,18 @@ class BattleSystem:
                 if hasattr(ally, "set_anim") and ally.is_alive():
                     ally.set_anim("idle")
 
-        # Giảm số lượt hiệu ứng bom khói của Rabbit
-        if hasattr(self.rabbit, 'smoke_turns') and self.rabbit.smoke_turns > 0:
-            self.rabbit.smoke_turns -= 1
-            if self.rabbit.smoke_turns <= 0:
-                self.rabbit.smoke_miss_bonus = False
+        # Giảm số lượt hiệu ứng bom khói của party
+        for ally in self.battle_party:
+            if getattr(ally, 'smoke_turns', 0) > 0:
+                ally.smoke_turns -= 1
+                if ally.smoke_turns <= 0:
+                    ally.smoke_miss_bonus = False
 
+        any_smoke = any(getattr(m, 'smoke_miss_bonus', False) for m in self.battle_party if m.is_alive())
         # Fox lên kế hoạch cho lượt tiếp theo
         for e in self._living_enemies():
             if isinstance(e, Fox):
-                e.plan_turn(rabbit_has_smoke=getattr(self.rabbit, 'smoke_miss_bonus', False))
+                e.plan_turn(rabbit_has_smoke=any_smoke)
 
         # Bắt đầu ngay lượt mới phe ta
         self._start_ally_turn()
@@ -1053,6 +1071,15 @@ class BattleSystem:
                 self._after_ally_action()
 
     def _apply_ally_hit(self, d):
+        # Phát SFX cho Attack hoặc Ranged Attack khi chạm mục tiêu
+        try:
+            if pg.mixer.get_init():
+                sfx = pg.mixer.Sound("assets/sounds/atk_sfx.mp3")
+                sfx.set_volume(0.7)
+                sfx.play()
+        except Exception as e:
+            print(f"Cannot play attack SFX: {e}")
+
         actor = d["actor"]
         tgt = d["target"]
         if not tgt.is_alive():
@@ -1093,9 +1120,17 @@ class BattleSystem:
         if success:
             self._push_msg(f"Successfully caught {tgt.KIND.capitalize()}!")
             self._add_float("CAUGHT!", tgt.draw_x + 40, tgt.draw_y, COL_GREEN, 28)
+            try:
+                if pg.mixer.get_init():
+                    sfx = pg.mixer.Sound("assets/sounds/catch_sfx.mp3")
+                    sfx.set_volume(0.8)
+                    sfx.play()
+            except Exception as e:
+                print(f"Cannot play catch SFX: {e}")
             
             prev_hp = tgt.hp
             tgt.hp = 0  # xóa khỏi trận đấu
+            self.caught_enemy_targets.append(tgt)
             
             # Thêm quái vật vào party
             from game.combat_entities import Slime, Bee
@@ -1133,22 +1168,42 @@ class BattleSystem:
             self._next_ally_action()
 
     def _resolve_win(self):
-        total_exp = sum(e.exp_reward for e in self.enemies)
+        total_exp = sum(
+            e.exp_reward for e in self.enemies
+            if e not in self.caught_enemy_targets
+        )
         self.exp_gained = total_exp
+        
+        # Ngừng nhạc nền và phát SFX chiến thắng đúng 1 lần
+        try:
+            if pg.mixer.get_init():
+                pg.mixer.music.stop()
+                victory_sfx = pg.mixer.Sound("assets/sounds/victory_sfx.mp3")
+                victory_sfx.set_volume(0.8)
+                victory_sfx.play()
+        except Exception as e:
+            print(f"Cannot play victory SFX: {e}")
+
         rabbit = next((m for m in self.party if isinstance(m, Rabbit)), self.party[0])
         self.leveled_up = rabbit.gain_exp(total_exp)
         self.result = "win"
         self.state  = BS_WIN
-        self._push_msg(f"Victory! +{total_exp} EXP")
+        
+        self._push_msg("Victory!")
+        if total_exp == 0 and self.caught_enemy_targets:
+            self._push_msg("All monsters caught.")
+            
+        self._push_msg(f"Rabbit: +{total_exp} EXP")
         if self.leveled_up:
             self._push_msg(f"Rabbit leveled up to Lv.{rabbit.level}!")
         
-        # Đồng minh khác nhận XP
+        # Đồng minh khác nhận XP và in thông báo
         for m in self.party:
-            if m is not rabbit:
+            if m is not rabbit and m not in self.caught_this_battle:
+                m_name = m.KIND.capitalize()
+                self._push_msg(f"{m_name}: +{total_exp} EXP")
                 m_leveled = m.gain_exp(total_exp)
                 if m_leveled:
-                    m_name = m.KIND.capitalize()
                     self._push_msg(f"{m_name} leveled up to Lv.{m.level}!")
 
     def _update_enemy_anim(self):
@@ -1175,6 +1230,13 @@ class BattleSystem:
                         else:
                             actual = target.take_damage(d["dmg"])
                             self._play_anim(target, "hit", fallback="idle")
+                            try:
+                                if pg.mixer.get_init():
+                                    dmg_sfx = pg.mixer.Sound("assets/sounds/take_dmg_sfx.mp3")
+                                    dmg_sfx.set_volume(0.8)
+                                    dmg_sfx.play()
+                            except Exception as e:
+                                print(f"Cannot play take damage SFX: {e}")
                             if not target.is_alive():
                                 self._play_anim(target, "dead", fallback="hit")
                                 target.dead_wait_timer = 0
@@ -1253,12 +1315,22 @@ class BattleSystem:
             return
 
         if atype == "smoke":
-            self._push_msg(f"Fox threw a Smoke Grenade! {target_name} is affected.")
-            target.smoke_miss_bonus = True
-            target.poisoned = True
-            target.poison_stacks = getattr(target, 'poison_stacks', 0) + 1
-            self._play_anim(target, "poison", fallback="hit")
-            self._add_float("SMOKE!", target.draw_x, target.draw_y + 30, COL_GRAY, 24)
+            self._push_msg("Fox threw a Smoke Grenade! The active party is affected.")
+            for ally in self.battle_party:
+                if ally.is_alive():
+                    ally.smoke_miss_bonus = True
+                    ally.smoke_turns = 3  # Tác dụng trong 3 lượt
+                    ally.poisoned = True
+                    ally.poison_stacks = getattr(ally, 'poison_stacks', 0) + 1
+                    self._play_anim(ally, "poison", fallback="hit")
+                    self._add_float("SMOKE!", ally.draw_x, ally.draw_y + 30, COL_GRAY, 24)
+            try:
+                if pg.mixer.get_init():
+                    sfx = pg.mixer.Sound("assets/sounds/poison_sfx.mp3")
+                    sfx.set_volume(0.8)
+                    sfx.play()
+            except Exception as e:
+                print(f"Cannot play poison SFX: {e}")
             return
 
         # kunai
@@ -1283,6 +1355,13 @@ class BattleSystem:
         else:
             actual = target.take_damage(dmg)
             self._play_anim(target, "hit", fallback="idle")
+            try:
+                if pg.mixer.get_init():
+                    dmg_sfx = pg.mixer.Sound("assets/sounds/take_dmg_sfx.mp3")
+                    dmg_sfx.set_volume(0.8)
+                    dmg_sfx.play()
+            except Exception as e:
+                print(f"Cannot play take damage SFX: {e}")
             if not target.is_alive():
                 self._play_anim(target, "dead", fallback="hit")
                 target.dead_wait_timer = 0
@@ -1391,7 +1470,8 @@ class BattleSystem:
                     int(e.draw_y + oy),
                     ew,
                     eh,
-                    self.text_ren
+                    self.text_ren,
+                    is_active=(e == self.current_actor)
                 )
 
         # Vẽ đồng minh (phe ta)
@@ -1428,6 +1508,17 @@ class BattleSystem:
                     flip_x=flip
                 )
 
+                # Vẽ tên + cấp phía trên sprite đồng minh
+                draw_ally_sprite_status(
+                    ally,
+                    int(ally.draw_x),
+                    int(ally.draw_y),
+                    aw,
+                    ah,
+                    self.text_ren,
+                    is_active=(ally == self.current_actor)
+                )
+
         # Vẽ projectile nếu đang Ranged hoặc Catch
         if self.state == BS_PLAYER_ANIM:
             d = self.anim_data
@@ -1458,7 +1549,7 @@ class BattleSystem:
                 show_ally = self.current_actor
 
         if show_ally and show_ally.is_alive():
-            draw_ally_status(show_ally, self.text_ren, 20, 20)
+            draw_ally_status(show_ally, self.text_ren, 20, 20, is_active=(show_ally == self.current_actor))
 
         # Command box dọc
         if self.state in (BS_PLAYER_SELECT, BS_TARGET_SELECT, "item_select", "catch_target_select"):
@@ -1493,46 +1584,62 @@ class BattleSystem:
                         revive_qty=self.inventory.get("Revive", 0)
                     )
 
-            # Chỉ vẽ viền Highlight mục tiêu và dòng hướng dẫn khi ở trạng thái chọn mục tiêu hoặc ném Net
+            # Chỉ vẽ hiệu ứng highlight mục tiêu và dòng hướng dẫn khi ở trạng thái chọn mục tiêu hoặc ném Net
             if self.state in (BS_TARGET_SELECT, "catch_target_select") and living:
                 te = living[tgt_idx]
-                draw_rect_outline(int(te.draw_x)-4, int(te.draw_y)-4, 98, 98, (255, 220, 0), 3)
+                draw_target_aura(
+                    int(te.draw_x) - 4,
+                    int(te.draw_y) - 4,
+                    98,
+                    98,
+                    anim_frame=self.anim_timer
+                )
                 self.text_ren.draw_text(
-                    "W/S or Arrows: Choose target | Enter/Z: Confirm | Esc: Back",
+                    "WASD / Arrows: Choose target | Enter/Z: Confirm | Esc: Back",
                     SCREEN_WIDTH//2,
-                    SCREEN_HEIGHT - 18,
-                    size=14,
-                    color=(240, 240, 160),
+                    SCREEN_HEIGHT - 22,
+                    size=18,
+                    color=(15, 15, 20),
                     center_x=True
                 )
             elif self.state == BS_PLAYER_SELECT:
                 self.text_ren.draw_text(
                     "WASD / Arrows: Select command | Enter/Z/Space: Confirm",
                     SCREEN_WIDTH//2,
-                    SCREEN_HEIGHT - 18,
-                    size=14,
-                    color=(160, 180, 160),
+                    SCREEN_HEIGHT - 22,
+                    size=18,
+                    color=(15, 15, 20),
                     center_x=True
                 )
             elif self.state == "item_select":
                 self.text_ren.draw_text(
-                    "W/S or Arrows: Select item | Enter/Z: Confirm | Esc: Back",
+                    "WASD / Arrows: Select item | Enter/Z: Confirm | Esc: Back",
                     SCREEN_WIDTH//2,
-                    SCREEN_HEIGHT - 18,
-                    size=14,
-                    color=(160, 180, 160),
+                    SCREEN_HEIGHT - 22,
+                    size=18,
+                    color=(15, 15, 20),
+                    center_x=True
+                )
+            elif self.state in ("revive_target_select", "heal_target_select"):
+                self.text_ren.draw_text(
+                    "WASD / Arrows: Select member | Enter/Z: Confirm | Esc: Back",
+                    SCREEN_WIDTH//2,
+                    SCREEN_HEIGHT - 22,
+                    size=18,
+                    color=(15, 15, 20),
                     center_x=True
                 )
         else:
-            actor_name = "Rabbit" if isinstance(self.current_actor, Rabbit) else self.current_actor.KIND.capitalize()
-            draw_command_box(
-                self.selected_cmd,
-                actor_name,
-                self.text_ren,
-                getattr(self.current_actor, 'ranged_uses', 0),
-                enabled=False,
-                commands=self.actor_commands
-            )
+            if self.state not in (BS_WIN, BS_LOSE):
+                actor_name = "Rabbit" if isinstance(self.current_actor, Rabbit) else self.current_actor.KIND.capitalize()
+                draw_command_box(
+                    self.selected_cmd,
+                    actor_name,
+                    self.text_ren,
+                    getattr(self.current_actor, 'ranged_uses', 0),
+                    enabled=False,
+                    commands=self.actor_commands
+                )
 
         # Floating texts
         for f in self.floats:
