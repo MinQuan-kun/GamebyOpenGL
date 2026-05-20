@@ -869,6 +869,8 @@ class BattleSystem:
                             self._play_anim(target, "hit", fallback="idle")
                             if not target.is_alive():
                                 self._play_anim(target, "dead", fallback="hit")
+                                target.dead_wait_timer = 0
+                                target.pending_remove = True
 
                             prefix = "CRIT! " if d["is_crit"] else ""
                             self._push_msg(f"{prefix}{enemy.KIND.capitalize()} deals {actual} damage to {target_name}!")
@@ -975,6 +977,8 @@ class BattleSystem:
             self._play_anim(target, "hit", fallback="idle")
             if not target.is_alive():
                 self._play_anim(target, "dead", fallback="hit")
+                target.dead_wait_timer = 0
+                target.pending_remove = True
 
             if act.get("guaranteed_crit", False) and hasattr(fox, "clear_power_visual"):
                 fox.clear_power_visual()
@@ -988,21 +992,42 @@ class BattleSystem:
 
 
     def _check_rabbit_alive_then_next(self):
-        if self.rabbit.hp <= 0 or all(m.hp <= 0 for m in self.battle_party):
+        all_party_dead = all(m.hp <= 0 for m in self.battle_party)
+
+        if all_party_dead:
             for ally in self.battle_party:
-                if ally.hp <= 0:
-                    self._play_anim(ally, "dead", fallback="hit")
+                self._play_anim(ally, "dead", fallback="hit")
+                ally.pending_remove = False
 
             self.result = "lose"
             self.state = BS_LOSE
-            self._push_msg("Rabbit has fainted! Game Over!")
+            self._push_msg("The entire party has been defeated!")
             return
+
+        # Nếu có ally vừa chết, cho dead animation chạy rồi mới thay người
+        dead_waiting = [
+            m for m in self.battle_party
+            if m.hp <= 0 and getattr(m, "pending_remove", False)
+        ]
+
+        if dead_waiting:
+            for m in dead_waiting:
+                m.dead_wait_timer = getattr(m, "dead_wait_timer", 0) + 1
+
+            if any(m.dead_wait_timer < 45 for m in dead_waiting):
+                return
+
+            for m in dead_waiting:
+                m.pending_remove = False
 
         self._replenish_battle_party()
         self._next_enemy_action()
 
     def _replenish_battle_party(self):
-        living_in_battle = [m for m in self.battle_party if m.is_alive()]
+        living_in_battle = [
+            m for m in self.battle_party
+            if m.is_alive() or getattr(m, "pending_remove", False)
+        ]
         if len(living_in_battle) < 3:
             new_battle_party = list(living_in_battle)
             for m in self.party:
@@ -1063,7 +1088,11 @@ class BattleSystem:
 
         # Vẽ đồng minh (phe ta)
         for i, ally in enumerate(self.battle_party):
-            if not ally.is_alive():
+            if (
+                not ally.is_alive()
+                and getattr(ally, "anim_state", None) != "dead"
+                and not getattr(ally, "pending_remove", False)
+            ):
                 continue
 
             if isinstance(ally, Rabbit):
