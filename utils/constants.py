@@ -6,7 +6,7 @@ SCREEN_HEIGHT = 720
 TILE            = 48          # Kích thước mỗi ô tile (pixel)
 MAP_COLS        = 30          # Số ô ngang của bản đồ
 MAP_ROWS        = 22          # Số ô dọc của bản đồ
-PLAYER_SPEED    = 3           # Tốc độ di chuyển overworld (pixel/frame)
+PLAYER_SPEED    = 4           # Tốc độ di chuyển overworld (pixel/frame)
 
 # ── Battle ────────────────────────────────────────────────────────────────────
 RABBIT_BASE_HP  = 40          # HP cơ bản cấp 1 của Thỏ

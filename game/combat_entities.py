@@ -45,6 +45,7 @@ class Rabbit:
         self.poisoned = False           # Dính độc
         self.poison_stacks = 0         # Số lần dính độc
         self.smoke_miss_bonus = False   # Bị giảm độ chính xác do khói
+        self.smoke_turns = 0            # Số lượt tồn tại của bom khói
         # Animation state
         self.animations = {
             name: Animation(anim.frames[:], anim.speed, anim.loop)
@@ -66,6 +67,7 @@ class Rabbit:
 
     def gain_exp(self, amount):
         """Cộng EXP, trả về True nếu lên cấp."""
+        was_alive = self.hp > 0
         self.exp += amount
         leveled = False
         while self.exp >= self.exp_to_next:
@@ -73,7 +75,10 @@ class Rabbit:
             self.level += 1
             old_max = self.max_hp
             self._recalc_stats()
-            self.hp = min(self.hp + (self.max_hp - old_max), self.max_hp)
+            if was_alive:
+                self.hp = min(self.hp + (self.max_hp - old_max), self.max_hp)
+            else:
+                self.hp = 0
             self.exp_to_next = self._calc_exp_to_next()
             leveled = True
         return leveled
@@ -84,6 +89,7 @@ class Rabbit:
         self.poisoned = False
         self.poison_stacks = 0
         self.smoke_miss_bonus = False
+        self.smoke_turns = 0
 
     def get_miss_chance(self):
         base = MISS_CHANCE
@@ -203,6 +209,7 @@ class BaseEnemy:
 
     def gain_exp(self, amount):
         """Cộng EXP cho quái vật đồng hành, tự động lên cấp và nâng stats."""
+        was_alive = self.hp > 0
         self.exp += amount
         leveled = False
         while self.exp >= self.exp_to_next:
@@ -212,7 +219,10 @@ class BaseEnemy:
             self.max_hp  = _level_scale(self.BASE_HP,  self.level, 0.12)
             self.atk     = _level_scale(self.BASE_ATK, self.level, 0.10)
             self.exp_reward = _level_scale(self.BASE_EXP, self.level, 0.20)
-            self.hp = min(self.hp + (self.max_hp - old_max), self.max_hp)
+            if was_alive:
+                self.hp = min(self.hp + (self.max_hp - old_max), self.max_hp)
+            else:
+                self.hp = 0
             self.exp_to_next = 20 + self.level * 15
             leveled = True
         return leveled
@@ -327,24 +337,24 @@ class Fox(BaseEnemy):
         self.anim_state = "idle"
         self.current_anim = self.animations["idle"]
 
-    def plan_turn(self):
+    def plan_turn(self, rabbit_has_smoke=False):
         """Lên kế hoạch 2 hành động cho lượt này của Cáo."""
         if self.power_charged:
             # Sau Power Charge: chỉ 1 hành động = Kunai crit
             self.actions_this_turn = [{"type": "kunai", "guaranteed_crit": True, "no_miss": True}]
             self.power_charged = False
         else:
-            act1 = self._random_action(can_power_charge=False)
-            act2 = self._random_action(can_power_charge=True)
+            act1 = self._random_action(can_power_charge=False, rabbit_has_smoke=rabbit_has_smoke)
+            act2 = self._random_action(can_power_charge=True, rabbit_has_smoke=rabbit_has_smoke)
             self.actions_this_turn = [act1, act2]
         self.action_index = 0
 
-    def _random_action(self, can_power_charge):
+    def _random_action(self, can_power_charge, rabbit_has_smoke=False):
         r = random.random()
         if can_power_charge and r < 0.25:
             self.power_charged = True  # Lượt này charge, lượt sau chắc chắn Kunai crit
             return {"type": "power_charge"}
-        elif r < 0.55:
+        elif rabbit_has_smoke or r < 0.55:
             return {"type": "kunai", "guaranteed_crit": False, "no_miss": False}
         else:
             return {"type": "smoke"}

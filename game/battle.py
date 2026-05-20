@@ -116,11 +116,13 @@ class BattleSystem:
                 if hasattr(ally, 'poisoned'):
                     ally.poisoned = False
                     ally.poison_stacks = 0
+            if ally.is_alive() and hasattr(ally, "set_anim"):
+                ally.set_anim("idle")
 
         # Fox: lên kế hoạch trước
         for e in self.enemies:
             if isinstance(e, Fox):
-                e.plan_turn()
+                e.plan_turn(rabbit_has_smoke=getattr(self.rabbit, 'smoke_miss_bonus', False))
 
         self.result_timer = 0
         self.ally_queue = []
@@ -139,8 +141,11 @@ class BattleSystem:
     def _add_float(self, text, x, y, color=COL_WHITE, size=26):
         self.floats.append(FloatingText(text, x, y + 60, color, size))
 
-    def _push_msg(self, msg):
-        self.msg_log.push(msg)
+    def _push_msg(self, msg, is_enemy=None):
+        if is_enemy is None:
+            # Tự động phát hiện dựa trên trạng thái hiện tại hoặc nội dung hành động của địch
+            is_enemy = self.state in (BS_ENEMY_TURN, BS_ENEMY_ANIM, "fox_act")
+        self.msg_log.push(msg, is_enemy)
 
     def _play_anim(self, entity, state, fallback=None):
         """Chạy animation nếu entity có animation đó. Fallback dùng khi state chưa được mapping."""
@@ -172,6 +177,7 @@ class BattleSystem:
 
         living_allies = [m for m in self.battle_party if m.is_alive()]
         self.ally_queue = sorted(living_allies, key=get_ally_speed_key)
+        self.new_round_started = True
         self._next_ally_action()
 
     def _next_ally_action(self):
@@ -185,6 +191,9 @@ class BattleSystem:
         self.current_actor.is_guarding = False  # Reset guard ở đầu lượt của nó
         self.state = BS_PLAYER_SELECT
         self.selected_cmd = 0
+
+        if getattr(self, 'new_round_started', False):
+            self.new_round_started = False
 
         if isinstance(self.current_actor, Rabbit):
             self.actor_commands = ["Attack", "Ranged Attack", "Guard", "Item", "Run"]
@@ -549,14 +558,14 @@ class BattleSystem:
                 self._push_msg(f"Poison deals {pdmg} damage to {ally_name}!")
                 self._add_float(f"-{pdmg} PSN", ally.draw_x, ally.draw_y, COL_PURPLE)
 
-        # Trận đấu kết thúc khi TOÀN BỘ battle_party hết HP
-        all_party_dead = all(m.hp <= 0 for m in self.battle_party)
-        if all_party_dead:
+        # Trận đấu kết thúc khi Thỏ hết HP hoặc toàn bộ battle_party hết HP
+        if self.rabbit.hp <= 0 or all(m.hp <= 0 for m in self.battle_party):
             for ally in self.battle_party:
-                self._play_anim(ally, "dead", fallback="hit")
+                if ally.hp <= 0:
+                    self._play_anim(ally, "dead", fallback="hit")
             self.result = "lose"
             self.state  = BS_LOSE
-            self._push_msg("The entire party has been defeated!")
+            self._push_msg("Rabbit has fainted! Game Over!")
             return
 
         self._replenish_battle_party()
@@ -565,13 +574,21 @@ class BattleSystem:
         for ally in self.battle_party:
             if hasattr(ally, 'is_guarding'):
                 ally.is_guarding = False
+                if hasattr(ally, "set_anim") and ally.is_alive():
+                    ally.set_anim("idle")
+
+        # Giảm số lượt hiệu ứng bom khói của Rabbit
+        if hasattr(self.rabbit, 'smoke_turns') and self.rabbit.smoke_turns > 0:
+            self.rabbit.smoke_turns -= 1
+            if self.rabbit.smoke_turns <= 0:
+                self.rabbit.smoke_miss_bonus = False
 
         # Fox lên kế hoạch cho lượt tiếp theo
         for e in self._living_enemies():
             if isinstance(e, Fox):
-                e.plan_turn()
+                e.plan_turn(rabbit_has_smoke=getattr(self.rabbit, 'smoke_miss_bonus', False))
 
-        # Bắt đầu lượt mới phe ta
+        # Bắt đầu ngay lượt mới phe ta
         self._start_ally_turn()
 
     # ── Update animation ─────────────────────────────────────────────────────
@@ -704,6 +721,8 @@ class BattleSystem:
             if not d["applied"]:
                 d["applied"] = True
                 tgt.hp = max(1, tgt.max_hp // 2)
+                if hasattr(tgt, "set_anim"):
+                    tgt.set_anim("idle")
                 tgt_name = "Rabbit" if isinstance(tgt, Rabbit) else tgt.KIND.capitalize()
                 self._push_msg(f"Revived {tgt_name}!")
             
@@ -748,8 +767,10 @@ class BattleSystem:
 
             prefix = "CRIT! " if d["is_crit"] else ""
             self._push_msg(f"{prefix}{actor_name} deals {actual} damage to {tgt.KIND.capitalize()}!")
-            col = COL_YELLOW if d["is_crit"] else COL_RED
-            self._add_float(f"-{actual}", tgt.draw_x + 40, tgt.draw_y, col, 28)
+            if d["is_crit"]:
+                self._add_float(f"-{actual}!!!", tgt.draw_x + 40, tgt.draw_y, COL_YELLOW, 45)
+            else:
+                self._add_float(f"-{actual}", tgt.draw_x + 40, tgt.draw_y, COL_RED, 28)
 
             if not tgt.is_alive():
                 self._push_msg(f"{tgt.KIND.capitalize()} has been defeated!")
@@ -851,7 +872,10 @@ class BattleSystem:
 
                             prefix = "CRIT! " if d["is_crit"] else ""
                             self._push_msg(f"{prefix}{enemy.KIND.capitalize()} deals {actual} damage to {target_name}!")
-                            self._add_float(f"-{actual}", target.draw_x, target.draw_y, COL_RED)
+                            if d["is_crit"]:
+                                self._add_float(f"-{actual}!!!", target.draw_x, target.draw_y, COL_YELLOW, 45)
+                            else:
+                                self._add_float(f"-{actual}", target.draw_x, target.draw_y, COL_RED, 28)
 
                     if self.anim_timer > 35:
                         enemy.draw_x = enemy.base_x
@@ -957,19 +981,21 @@ class BattleSystem:
 
             prefix = "CRIT! " if is_crit else ""
             self._push_msg(f"{prefix}Fox threw Kunai dealing {actual} damage to {target_name}!")
-            self._add_float(f"-{actual}", target.draw_x, target.draw_y, COL_ORANGE, 28)
+            if is_crit:
+                self._add_float(f"-{actual}!!!", target.draw_x, target.draw_y, COL_ORANGE, 45)
+            else:
+                self._add_float(f"-{actual}", target.draw_x, target.draw_y, COL_ORANGE, 28)
 
 
     def _check_rabbit_alive_then_next(self):
-        all_party_dead = all(m.hp <= 0 for m in self.battle_party)
-
-        if all_party_dead:
+        if self.rabbit.hp <= 0 or all(m.hp <= 0 for m in self.battle_party):
             for ally in self.battle_party:
-                self._play_anim(ally, "dead", fallback="hit")
+                if ally.hp <= 0:
+                    self._play_anim(ally, "dead", fallback="hit")
 
             self.result = "lose"
             self.state = BS_LOSE
-            self._push_msg("The entire party has been defeated!")
+            self._push_msg("Rabbit has fainted! Game Over!")
             return
 
         self._replenish_battle_party()
@@ -1037,7 +1063,7 @@ class BattleSystem:
 
         # Vẽ đồng minh (phe ta)
         for i, ally in enumerate(self.battle_party):
-            if not ally.is_alive() and getattr(ally, "anim_state", None) != "dead":
+            if not ally.is_alive():
                 continue
 
             if isinstance(ally, Rabbit):
@@ -1285,25 +1311,36 @@ class BattleSystem:
 
 
     def _draw_result_banner(self):
-        from game.ui import draw_panel
-        draw_panel(SCREEN_WIDTH//2 - 200, SCREEN_HEIGHT//2 - 60, 400, 120, 230)
+        from game.ui import draw_pokemon_panel
+        panel_w = 460
+        panel_h = 180
+        panel_x = SCREEN_WIDTH // 2 - panel_w // 2
+        panel_y = SCREEN_HEIGHT // 2 - panel_h // 2
+        draw_pokemon_panel(panel_x, panel_y, panel_w, panel_h)
         rabbit = next((m for m in self.party if isinstance(m, Rabbit)), self.party[0])
+        mid_y = SCREEN_HEIGHT // 2
         if self.result == "win":
-            self.text_ren.draw_text("VICTORY!", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 20,
-                                    size=48, color=(80, 255, 80), center_x=True)
+            self.text_ren.draw_text("VICTORY!", SCREEN_WIDTH//2, mid_y + 40 if self.leveled_up else mid_y + 20,
+                                    size=48, color=(20, 120, 20), center_x=True, center_y=True)
             if self.leveled_up:
                 self.text_ren.draw_text(f"Level UP! → Lv.{rabbit.level}",
-                                        SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 20,
-                                        size=26, color=(240, 210, 50), center_x=True)
+                                        SCREEN_WIDTH//2, mid_y,
+                                        size=26, color=(200, 100, 10), center_x=True, center_y=True)
+            self.text_ren.draw_text("Press ENTER to continue",
+                                    SCREEN_WIDTH//2, mid_y - 45 if self.leveled_up else mid_y - 30,
+                                    size=20, color=(80, 80, 80), center_x=True, center_y=True)
         elif self.result == "lose":
-            self.text_ren.draw_text("DEFEAT...", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 20,
-                                    size=48, color=(255, 80, 80), center_x=True)
+            self.text_ren.draw_text("DEFEAT...", SCREEN_WIDTH//2, mid_y + 20,
+                                    size=48, color=(180, 20, 20), center_x=True, center_y=True)
+            self.text_ren.draw_text("Press ENTER to continue",
+                                    SCREEN_WIDTH//2, mid_y - 30,
+                                    size=20, color=(80, 80, 80), center_x=True, center_y=True)
         elif self.result == "run":
-            self.text_ren.draw_text("Escaped!", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 20,
-                                    size=38, color=(200, 200, 80), center_x=True)
-        self.text_ren.draw_text("Press ENTER to continue",
-                                SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 40,
-                                size=20, color=(180, 180, 180), center_x=True)
+            self.text_ren.draw_text("Escaped!", SCREEN_WIDTH//2, mid_y + 20,
+                                    size=38, color=(20, 80, 160), center_x=True, center_y=True)
+            self.text_ren.draw_text("Press ENTER to continue",
+                                    SCREEN_WIDTH//2, mid_y - 30,
+                                    size=20, color=(80, 80, 80), center_x=True, center_y=True)
 
     def is_done(self):
         return self.state in (BS_WIN, BS_LOSE) and self.result_timer > 60
