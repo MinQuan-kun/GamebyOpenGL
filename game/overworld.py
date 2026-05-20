@@ -1,5 +1,6 @@
 # game/overworld.py
-# Top-down overworld: rừng, cây, bụi cỏ, di chuyển WASD
+# Top-down overworld: OpenGL map đẹp hơn, path liền mạch, không shadow, bụi cỏ tròn
+import math
 import pygame as pg
 from OpenGL.GL import *
 from utils.constants import (
@@ -7,35 +8,33 @@ from utils.constants import (
 )
 
 # ── Tile IDs ──────────────────────────────────────────────────────────────
-T_GRASS   = 0   # Đất nền
-T_TREE    = 1   # Cây (blocking)
-T_BUSH    = 2   # Bụi cỏ #1 (Slime)
-T_BUSH2   = 3   # Bụi cỏ #2 (Slime/Bee mix)
-T_PATH    = 4   # Đường đi (safe)
-T_BOSS    = 5   # Điểm boss
-T_FENCE_H = 6   # Hàng rào ngang
-T_HOUSE   = 7   # Nhà
-T_FENCE_V = 8   # Hàng rào dọc
+T_GRASS   = 0
+T_TREE    = 1
+T_BUSH    = 2
+T_BUSH2   = 3
+T_PATH    = 4
+T_BOSS    = 5
+T_FENCE_H = 6
+T_HOUSE   = 7
+T_FENCE_V = 8
 
-# ── Màu sắc tile ──────────────────────────────────────────────────────────
-TILE_COLORS = {
-    T_GRASS: (0.22, 0.55, 0.20),
-    T_TREE:  (0.08, 0.30, 0.08),
-    T_BUSH:  (0.30, 0.65, 0.15),
-    T_BUSH2: (0.45, 0.70, 0.10),
-    T_PATH:  (0.60, 0.50, 0.30),
-    T_BOSS:  (0.60, 0.15, 0.10),
-    T_FENCE_H: (0.50, 0.35, 0.20),
-    T_HOUSE: (0.40, 0.40, 0.50),
-    T_FENCE_V: (0.50, 0.35, 0.20),
-}
-
-TREE_TRUNK = (0.35, 0.22, 0.08)
-TREE_CROWN = (0.10, 0.40, 0.08)
+# ── Màu sắc ───────────────────────────────────────────────────────────────
+GRASS_BASE  = (0.20, 0.53, 0.19)
+GRASS_ALT_1 = (0.18, 0.48, 0.17)
+GRASS_ALT_2 = (0.23, 0.58, 0.21)
+PATH_COL    = (0.63, 0.50, 0.30)
+PATH_EDGE   = (0.48, 0.36, 0.18)
+PATH_LIGHT  = (0.72, 0.60, 0.38)
+TREE_TRUNK  = (0.34, 0.20, 0.08)
+TREE_CROWN1 = (0.09, 0.34, 0.08)
+TREE_CROWN2 = (0.12, 0.45, 0.10)
+TREE_CROWN3 = (0.16, 0.55, 0.13)
+FENCE_DARK  = (0.38, 0.23, 0.10)
+FENCE_LIGHT = (0.56, 0.38, 0.18)
+BOSS_COL    = (0.62, 0.14, 0.10)
+BOSS_LIGHT  = (0.95, 0.45, 0.18)
 
 # ── Bản đồ 30x22 ─────────────────────────────────────────────────────────
-# X = Tree, . = Grass, 1 = Bush1(Slime), 2 = Bush2(Bee/Slime), P = Path, B = Boss
-# Người chơi bắt đầu ở (2,10)
 _RAW_MAP = [
     "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
     "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
@@ -61,6 +60,7 @@ _RAW_MAP = [
     "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
 ]
 
+
 def _parse_map(raw):
     grid = []
     for row in raw:
@@ -72,7 +72,7 @@ def _parse_map(raw):
                 line.append(T_BUSH)
             elif ch == '2':
                 line.append(T_BUSH2)
-            elif ch in ('P',):
+            elif ch == 'P':
                 line.append(T_PATH)
             elif ch == 'B':
                 line.append(T_BOSS)
@@ -87,43 +87,44 @@ def _parse_map(raw):
         grid.append(line)
     return grid
 
+
 TILEMAP = _parse_map(_RAW_MAP)
 MAP_ROWS = len(TILEMAP)
+
 
 def tile_at(col, row):
     if 0 <= row < MAP_ROWS and 0 <= col < MAP_COLS:
         return TILEMAP[row][col]
-    return T_TREE  # ngoài biên = blocking
+    return T_TREE
 
 
 class OverworldPlayer:
     def __init__(self, col=14, row=18):
-        # Vị trí theo pixel (tính từ góc dưới-trái OpenGL)
         self.px = col * TILE + TILE // 2
         self.py = (MAP_ROWS - 1 - row) * TILE + TILE // 2
         self.w  = TILE - 8
         self.h  = TILE - 8
         self.anim_timer = 0
         self.frame_index = 0
-        self.moving     = False
-        self.facing     = "down" # down, up, left, right
+        self.moving = False
+        self.facing = "down"
 
     def col(self): return int(self.px // TILE)
     def row(self): return MAP_ROWS - 1 - int(self.py // TILE)
 
     def update(self, keys):
         dx = dy = 0
-        if keys[pg.K_a] or keys[pg.K_LEFT]:  
+        if keys[pg.K_a] or keys[pg.K_LEFT]:
             dx = -PLAYER_SPEED
             self.facing = "left"
-        elif keys[pg.K_d] or keys[pg.K_RIGHT]: 
-            dx =  PLAYER_SPEED
+        elif keys[pg.K_d] or keys[pg.K_RIGHT]:
+            dx = PLAYER_SPEED
             self.facing = "right"
 
-        if keys[pg.K_w] or keys[pg.K_UP]:    
-            dy =  PLAYER_SPEED
+        if keys[pg.K_w] or keys[pg.K_UP]:
+            dy = PLAYER_SPEED
             self.facing = "up"
-        elif keys[pg.K_s] or keys[pg.K_DOWN]:  
+        elif keys[pg.K_s] or keys[pg.K_DOWN]:
             dy = -PLAYER_SPEED
             self.facing = "down"
 
@@ -133,7 +134,6 @@ class OverworldPlayer:
 
         self.moving = (dx != 0 or dy != 0)
 
-        # Di chuyển từng trục để tránh kẹt góc
         new_x = self.px + dx
         if not self._blocked_at(new_x, self.py):
             self.px = new_x
@@ -141,7 +141,6 @@ class OverworldPlayer:
         if not self._blocked_at(self.px, new_y):
             self.py = new_y
 
-        # Clamp
         margin = self.w // 2
         self.px = max(margin, min(MAP_COLS * TILE - margin, self.px))
         self.py = max(margin, min(MAP_ROWS * TILE - margin, self.py))
@@ -170,14 +169,8 @@ class OverworldPlayer:
         return tile_at(self.col(), self.row())
 
 
-def _draw_tile_quad(x, y, w, h_or_color, color=None):
-    """Vẽ quad: (x,y,w,h,color) hoặc dạng cũ (x,y,size,color)."""
-    if color is None:
-        # gọi kiểu cũ: _draw_tile_quad(x,y,size,color)
-        h = w
-        color = h_or_color
-    else:
-        h = h_or_color
+# ── Primitive OpenGL helpers ──────────────────────────────────────────────
+def _draw_quad(x, y, w, h, color):
     glDisable(GL_TEXTURE_2D)
     glColor3f(*color)
     glBegin(GL_QUADS)
@@ -189,199 +182,272 @@ def _draw_tile_quad(x, y, w, h_or_color, color=None):
     glColor3f(1, 1, 1)
 
 
+
+
+def _draw_gradient_quad(x, y, w, h, top_color, bottom_color):
+    """Vẽ quad gradient dọc bằng OpenGL, dùng cho path liền khối."""
+    glDisable(GL_TEXTURE_2D)
+    glBegin(GL_QUADS)
+    glColor3f(*bottom_color)
+    glVertex2f(x, y)
+    glVertex2f(x + w, y)
+    glColor3f(*top_color)
+    glVertex2f(x + w, y + h)
+    glVertex2f(x, y + h)
+    glEnd()
+    glColor3f(1, 1, 1)
+
+def _draw_circle(cx, cy, r, color, segments=16):
+    glDisable(GL_TEXTURE_2D)
+    glColor3f(*color)
+    glBegin(GL_TRIANGLE_FAN)
+    glVertex2f(cx, cy)
+    for i in range(segments + 1):
+        a = 2 * math.pi * i / segments
+        glVertex2f(cx + math.cos(a) * r, cy + math.sin(a) * r)
+    glEnd()
+    glColor3f(1, 1, 1)
+
+
+def _draw_tile_quad(x, y, w, h_or_color, color=None):
+    if color is None:
+        h = w
+        color = h_or_color
+    else:
+        h = h_or_color
+    _draw_quad(x, y, w, h, color)
+
+
+# ── Tile drawing ──────────────────────────────────────────────────────────
+def _draw_grass_tile(x, y, col, row):
+    # Nhẹ hơn shadow: chỉ đổi màu ô nền theo pattern nhỏ.
+    if (col + row) % 7 == 0:
+        c = GRASS_ALT_1
+    elif (col * 3 + row) % 11 == 0:
+        c = GRASS_ALT_2
+    else:
+        c = GRASS_BASE
+    _draw_quad(x, y, TILE, TILE, c)
+
+    # Chi tiết cỏ rất nhẹ: vài vạch ngắn, không alpha, không shadow.
+    glDisable(GL_TEXTURE_2D)
+    glColor3f(0.16, 0.42, 0.14)
+    glBegin(GL_LINES)
+    if (col + row) % 3 == 0:
+        glVertex2f(x + TILE * 0.25, y + TILE * 0.30)
+        glVertex2f(x + TILE * 0.25, y + TILE * 0.42)
+    if (col * 2 + row) % 4 == 0:
+        glVertex2f(x + TILE * 0.70, y + TILE * 0.60)
+        glVertex2f(x + TILE * 0.74, y + TILE * 0.72)
+    glEnd()
+    glColor3f(1, 1, 1)
+
+
+def _is_path_like(t):
+    return t in (T_PATH, T_BOSS)
+
+
+def _draw_path_connected(col, row, x, y):
+    top_col = (0.72, 0.60, 0.39)
+    bot_col = (0.72, 0.60, 0.39)
+    _draw_gradient_quad(x, y, TILE, TILE, top_col, bot_col)
+
+    neighbors = {
+        "L": tile_at(col - 1, row),
+        "R": tile_at(col + 1, row),
+        "U": tile_at(col, row - 1),
+        "D": tile_at(col, row + 1),
+    }
+
+    # Làm các khớp nối overlap nhẹ để không bị hở pixel giữa tile.
+    overlap = 1
+    if _is_path_like(neighbors["L"]):
+        _draw_gradient_quad(x - overlap, y, TILE * 0.5 + overlap, TILE, top_col, bot_col)
+    if _is_path_like(neighbors["R"]):
+        _draw_gradient_quad(x + TILE * 0.5, y, TILE * 0.5 + overlap, TILE, top_col, bot_col)
+    if _is_path_like(neighbors["U"]):
+        _draw_gradient_quad(x, y + TILE * 0.5, TILE, TILE * 0.5 + overlap, top_col, bot_col)
+    if _is_path_like(neighbors["D"]):
+        _draw_gradient_quad(x, y - overlap, TILE, TILE * 0.5 + overlap, top_col, bot_col)
+
+    # Viền ngoài path: không vẽ ở cạnh nối với path khác.
+    glDisable(GL_TEXTURE_2D)
+    glLineWidth(2)
+    glColor3f(*PATH_EDGE)
+    glBegin(GL_LINES)
+    if not _is_path_like(neighbors["L"]):
+        glVertex2f(x, y)
+        glVertex2f(x, y + TILE)
+    if not _is_path_like(neighbors["R"]):
+        glVertex2f(x + TILE, y)
+        glVertex2f(x + TILE, y + TILE)
+    if not _is_path_like(neighbors["U"]):
+        glVertex2f(x, y + TILE)
+        glVertex2f(x + TILE, y + TILE)
+    if not _is_path_like(neighbors["D"]):
+        glVertex2f(x, y)
+        glVertex2f(x + TILE, y)
+    glEnd()
+
+    # Sỏi nhỏ: cố định theo col/row, không random để không nhấp nháy.
+    pebble_color_1 = (0.50, 0.48, 0.43)
+    pebble_color_2 = (0.39, 0.37, 0.33)
+    pebble_color_3 = (0.66, 0.61, 0.52)
+
+    glPointSize(3)
+    glBegin(GL_POINTS)
+    if (col * 7 + row * 3) % 4 == 0:
+        glColor3f(*pebble_color_1)
+        glVertex2f(x + TILE * 0.25, y + TILE * 0.35)
+    if (col * 5 + row * 11) % 5 == 0:
+        glColor3f(*pebble_color_2)
+        glVertex2f(x + TILE * 0.65, y + TILE * 0.62)
+    if (col * 13 + row * 2) % 6 == 0:
+        glColor3f(*pebble_color_3)
+        glVertex2f(x + TILE * 0.48, y + TILE * 0.22)
+    glEnd()
+
+    # Một vài viên sỏi lớn hơn bằng circle nhỏ, rất ít để không lag.
+    if (col * 17 + row) % 13 == 0:
+        _draw_circle(x + TILE * 0.72, y + TILE * 0.30, 2.4, pebble_color_1, segments=8)
+    if (col * 3 + row * 19) % 17 == 0:
+        _draw_circle(x + TILE * 0.35, y + TILE * 0.70, 2.0, pebble_color_2, segments=8)
+
+    glColor3f(1, 1, 1)
+
+def _draw_boss_tile(x, y):
+    _draw_quad(x + TILE * 0.08, y + TILE * 0.08, TILE * 0.84, TILE * 0.84, BOSS_COL)
+    _draw_circle(x + TILE * 0.5, y + TILE * 0.5, TILE * 0.22, BOSS_LIGHT, segments=18)
+
+
 def _draw_tree(x, y, tile):
-    # Thân cây
-    tw = tile * 0.4
-    th = tile * 0.45
-    tx = x + tile * 0.3
-    ty = y
-    _draw_tile_quad(tx, ty, tw, th, TREE_TRUNK)
-    # Tán lá
-    cw = tile * 0.9
-    ch = tile * 0.7
-    cx = x + tile * 0.05
-    cy = y + tile * 0.30
-    _draw_tile_quad(cx, cy, cw, ch, TREE_CROWN)
+    # Không shadow: thân + tán 3 cụm tròn nhẹ.
+    _draw_quad(x + tile * 0.39, y + tile * 0.05, tile * 0.22, tile * 0.42, TREE_TRUNK)
+    _draw_circle(x + tile * 0.50, y + tile * 0.60, tile * 0.38, TREE_CROWN1, segments=18)
+    _draw_circle(x + tile * 0.34, y + tile * 0.52, tile * 0.28, TREE_CROWN2, segments=16)
+    _draw_circle(x + tile * 0.66, y + tile * 0.52, tile * 0.28, TREE_CROWN2, segments=16)
+    _draw_circle(x + tile * 0.50, y + tile * 0.76, tile * 0.25, TREE_CROWN3, segments=16)
 
 
 def _draw_fence(x, y, size, is_horizontal=True):
-    """Vẽ hàng rào gỗ chéo/thẳng bằng OpenGL."""
-    glColor4f(0.4, 0.25, 0.1, 1.0)
-    glBegin(GL_QUADS)
+    glDisable(GL_TEXTURE_2D)
     if is_horizontal:
-        # Cọc dọc
-        glVertex2f(x + size*0.2, y + size*0.1)
-        glVertex2f(x + size*0.3, y + size*0.1)
-        glVertex2f(x + size*0.3, y + size*0.9)
-        glVertex2f(x + size*0.2, y + size*0.9)
-
-        glVertex2f(x + size*0.7, y + size*0.1)
-        glVertex2f(x + size*0.8, y + size*0.1)
-        glVertex2f(x + size*0.8, y + size*0.9)
-        glVertex2f(x + size*0.7, y + size*0.9)
-        glEnd()
-
-        # Thanh ngang
-        glColor4f(0.5, 0.35, 0.2, 1.0)
-        glBegin(GL_QUADS)
-        glVertex2f(x, y + size*0.3)
-        glVertex2f(x + size, y + size*0.3)
-        glVertex2f(x + size, y + size*0.4)
-        glVertex2f(x, y + size*0.4)
-        
-        glVertex2f(x, y + size*0.6)
-        glVertex2f(x + size, y + size*0.6)
-        glVertex2f(x + size, y + size*0.7)
-        glVertex2f(x, y + size*0.7)
+        _draw_quad(x + size * 0.18, y + size * 0.12, size * 0.11, size * 0.76, FENCE_DARK)
+        _draw_quad(x + size * 0.70, y + size * 0.12, size * 0.11, size * 0.76, FENCE_DARK)
+        _draw_quad(x, y + size * 0.32, size, size * 0.12, FENCE_LIGHT)
+        _draw_quad(x, y + size * 0.62, size, size * 0.12, FENCE_LIGHT)
     else:
-        # Cọc ngang
-        glVertex2f(x + size*0.1, y + size*0.2)
-        glVertex2f(x + size*0.1, y + size*0.3)
-        glVertex2f(x + size*0.9, y + size*0.3)
-        glVertex2f(x + size*0.9, y + size*0.2)
+        _draw_quad(x + size * 0.12, y + size * 0.18, size * 0.76, size * 0.11, FENCE_DARK)
+        _draw_quad(x + size * 0.12, y + size * 0.70, size * 0.76, size * 0.11, FENCE_DARK)
+        _draw_quad(x + size * 0.32, y, size * 0.12, size, FENCE_LIGHT)
+        _draw_quad(x + size * 0.62, y, size * 0.12, size, FENCE_LIGHT)
+    glColor3f(1, 1, 1)
 
-        glVertex2f(x + size*0.1, y + size*0.7)
-        glVertex2f(x + size*0.1, y + size*0.8)
-        glVertex2f(x + size*0.9, y + size*0.8)
-        glVertex2f(x + size*0.9, y + size*0.7)
-        glEnd()
 
-        # Thanh dọc
-        glColor4f(0.5, 0.35, 0.2, 1.0)
-        glBegin(GL_QUADS)
-        glVertex2f(x + size*0.3, y)
-        glVertex2f(x + size*0.4, y)
-        glVertex2f(x + size*0.4, y + size)
-        glVertex2f(x + size*0.3, y + size)
-        
-        glVertex2f(x + size*0.6, y)
-        glVertex2f(x + size*0.7, y)
-        glVertex2f(x + size*0.7, y + size)
-        glVertex2f(x + size*0.6, y + size)
+def _draw_bush_detail(x, y, bush_type):
+    # Bụi cỏ tròn tròn: nhiều cụm circle chồng nhau, không shadow.
+    if bush_type == T_BUSH:
+        dark = (0.16, 0.53, 0.10)
+        mid = (0.24, 0.68, 0.14)
+        light = (0.36, 0.80, 0.20)
+    else:
+        dark = (0.30, 0.55, 0.08)
+        mid = (0.45, 0.70, 0.12)
+        light = (0.62, 0.84, 0.18)
+
+    _draw_circle(x + TILE * 0.30, y + TILE * 0.40, TILE * 0.24, dark, segments=14)
+    _draw_circle(x + TILE * 0.52, y + TILE * 0.47, TILE * 0.30, mid, segments=16)
+    _draw_circle(x + TILE * 0.72, y + TILE * 0.38, TILE * 0.23, dark, segments=14)
+    _draw_circle(x + TILE * 0.45, y + TILE * 0.62, TILE * 0.22, light, segments=14)
+    _draw_circle(x + TILE * 0.63, y + TILE * 0.60, TILE * 0.18, light, segments=12)
+
+    # Viền đáy nhỏ để nhìn như bụi cụm, không dùng alpha.
+    glDisable(GL_TEXTURE_2D)
+    glColor3f(*dark)
+    glLineWidth(2)
+    glBegin(GL_LINES)
+    glVertex2f(x + TILE * 0.18, y + TILE * 0.25)
+    glVertex2f(x + TILE * 0.82, y + TILE * 0.25)
     glEnd()
+    glColor3f(1, 1, 1)
 
 
+# ── Main draw ─────────────────────────────────────────────────────────────
 def draw_overworld(player, text_ren, cam_x=0, cam_y=0, renderers=None):
-    """Vẽ toàn bộ overworld map + player."""
-    # Nền
     glClearColor(0.10, 0.25, 0.08, 1.0)
     glClear(GL_COLOR_BUFFER_BIT)
 
-    # Camera center trên player
-    view_x = player.px - SCREEN_WIDTH  // 2
+    view_x = player.px - SCREEN_WIDTH // 2
     view_y = player.py - SCREEN_HEIGHT // 2
-
-    # Clamp camera
-    view_x = max(0, min(MAP_COLS * TILE - SCREEN_WIDTH,  view_x))
+    view_x = max(0, min(MAP_COLS * TILE - SCREEN_WIDTH, view_x))
     view_y = max(0, min(MAP_ROWS * TILE - SCREEN_HEIGHT, view_y))
 
     glPushMatrix()
     glTranslatef(-view_x, -view_y, 0)
 
-    # Lấy renderers
-    grass_ren = renderers.get("grass") if renderers else None
-    path_ren = renderers.get("path") if renderers else None
-    fence_h_ren = renderers.get("fence_h") if renderers else None
-    fence_v_ren = renderers.get("fence_v") if renderers else None
-    
-    # Không dùng tree và house renderer nữa theo yêu cầu
-    tree_ren = None
-    house_ren = None
-    map_bg_ren = None
+    # Pass 1: grass base
+    for row in range(MAP_ROWS):
+        for col in range(MAP_COLS):
+            x = col * TILE
+            y = (MAP_ROWS - 1 - row) * TILE
+            _draw_grass_tile(x, y, col, row)
 
-    # Lựa chọn 2: Vẽ tiles rời rạc
     trees = []
-    houses = []
     fences = []
+    bushes = []
+
+    # Pass 2: connected path/boss and collect objects
     for row in range(MAP_ROWS):
         for col in range(MAP_COLS):
             t = TILEMAP[row][col]
             x = col * TILE
             y = (MAP_ROWS - 1 - row) * TILE
-            
-            # Luôn vẽ cỏ làm nền dưới cùng
-            if grass_ren:
-                grass_ren.draw(x, y, TILE, TILE, 0)
-            else:
-                _draw_tile_quad(x, y, TILE, TILE_COLORS[T_GRASS])
-                
-            if t == T_TREE:
+
+            if t == T_PATH:
+                _draw_path_connected(col, row, x, y)
+            elif t == T_BOSS:
+                _draw_path_connected(col, row, x, y)
+                _draw_boss_tile(x, y)
+            elif t == T_TREE:
                 trees.append((x, y))
-            elif t == T_HOUSE:
-                pass # houses.append((x, y)) - Ẩn nhà tạm thời
             elif t in (T_FENCE_H, T_FENCE_V):
                 fences.append((x, y, t))
-            elif t == T_PATH or t == T_BOSS:
-                if path_ren:
-                    path_ren.draw(x, y, TILE, TILE, 0)
-                else:
-                    _draw_tile_quad(x, y, TILE, TILE_COLORS[T_PATH])
             elif t in (T_BUSH, T_BUSH2):
-                _draw_bush_detail(x, y, t)
+                bushes.append((x, y, t))
 
-    for (x, y, t_type) in fences:
-        _draw_fence(x, y, TILE, is_horizontal=(t_type == T_FENCE_H))
+    # Pass 3: objects
+    for x, y, t in fences:
+        _draw_fence(x, y, TILE, is_horizontal=(t == T_FENCE_H))
 
-    for (x, y) in houses:
-        if house_ren:
-            # Chỉnh kích thước to ra
-            house_ren.draw(int(x - TILE*0.5), int(y), int(TILE*2), int(TILE*2), 0)
-        else:
-            _draw_tile_quad(x, y, TILE, TILE_COLORS[T_HOUSE])
+    for x, y, t in bushes:
+        _draw_bush_detail(x, y, t)
 
-    for (x, y) in trees:
-        if tree_ren:
-            tree_ren.draw(int(x - TILE*0.25), int(y), int(TILE*1.5), int(TILE*1.5), 0)
-        else:
-            _draw_tree(x, y, TILE)
+    for x, y in trees:
+        _draw_tree(x, y, TILE)
 
-    # Vẽ player (hình thỏ đơn giản = hình chữ nhật + tai)
+    # Player
     px = player.px - player.w // 2
     py = player.py - player.h // 2
-    
     rabbit_front = renderers.get("rabbit_front") if renderers else None
     rabbit_back = renderers.get("rabbit_back") if renderers else None
-    
-    ren = None
-    flip = False
-    if player.facing == "down":
-        ren = rabbit_front
-    else: # up, left, right
-        ren = rabbit_back
-        
+
+    ren = rabbit_front if player.facing == "down" else rabbit_back
+    flip = player.facing == "left"
+
     if ren:
         ren.draw(int(px) - 8, int(py) - 8, player.w + 16, player.h + 16, player.frame_index, flip_x=flip)
     else:
-        _draw_tile_quad(px, py, player.w, player.h, (0.9, 0.85, 0.8))
-        # Tai
-        ear_w = player.w * 0.2
-        ear_h = player.h * 0.45
-        _draw_tile_quad(px + player.w * 0.15, py + player.h, ear_w, ear_h, (0.9, 0.80, 0.80))
-        _draw_tile_quad(px + player.w * 0.60, py + player.h, ear_w, ear_h, (0.9, 0.80, 0.80))
+        _draw_quad(px, py, player.w, player.h, (0.9, 0.85, 0.8))
+        _draw_quad(px + player.w * 0.15, py + player.h, player.w * 0.2, player.h * 0.45, (0.9, 0.80, 0.80))
+        _draw_quad(px + player.w * 0.60, py + player.h, player.w * 0.2, player.h * 0.45, (0.9, 0.80, 0.80))
 
     glPopMatrix()
 
-    # HUD
-    text_ren.draw_text("WASD: Move  |  Walk into bushes to encounter monsters",
-                        SCREEN_WIDTH // 2, 12, size=15, color=(200, 230, 200), center_x=True)
-
-
-def _draw_bush_detail(x, y, bush_type):
-    glDisable(GL_TEXTURE_2D)
-    n_blades = 5
-    import math
-    for i in range(n_blades):
-        bx = x + 4 + i * (TILE - 8) / max(n_blades - 1, 1)
-        by = y + 2
-        bh = TILE * 0.4 + math.sin(i * 1.5) * 4
-        bw = 3
-        c = (0.20, 0.70, 0.10) if bush_type == T_BUSH else (0.40, 0.75, 0.05)
-        glColor3f(*c)
-        glBegin(GL_QUADS)
-        glVertex2f(bx, by)
-        glVertex2f(bx + bw, by)
-        glVertex2f(bx + bw // 2 + 1, by + bh)
-        glVertex2f(bx - 1, by + bh)
-        glEnd()
-    glColor3f(1, 1, 1)
-    glEnable(GL_TEXTURE_2D)
+    text_ren.draw_text(
+        "WASD: Move  |  Walk into bushes to encounter monsters",
+        SCREEN_WIDTH // 2,
+        12,
+        size=15,
+        color=(200, 230, 200),
+        center_x=True
+    )

@@ -266,9 +266,21 @@ class BaseEnemy:
         if not self.current_anim:
             return
 
+        if (
+            self.hp > 0
+            and getattr(self, "poisoned", False)
+            and self.anim_state == "idle"
+            and self.animations
+            and "poison" in self.animations
+        ):
+            self.set_anim("poison")
+
         self.current_anim.update()
 
         if self.anim_state == "dead":
+            return
+
+        if self.anim_state in ("poison", "guard"):
             return
 
         if self.current_anim.finished:

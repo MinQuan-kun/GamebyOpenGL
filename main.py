@@ -449,19 +449,19 @@ def main():
                 if cur_tile == T_BOSS and not boss_defeated:
                     boss_lv = max(1, rabbit.level)
                     fox = Fox(boss_lv)
-                    battle_sys = BattleSystem(party, [fox], text_ren, renderers, inventory, is_boss=True)
+                    battle_sys = BattleSystem(party, [fox], text_ren, renderers, inventory, is_boss=True, bg_type="boss")
                     state = ST_BATTLE
                     bush_cd = BUSH_COOLDOWN
                     ow_menu_active = False
                 elif cur_tile == T_BUSH:
                     enemies = spawn_bush1_enemies(rabbit.level)
-                    battle_sys = BattleSystem(party, enemies, text_ren, renderers, inventory, is_boss=False)
+                    battle_sys = BattleSystem(party, enemies, text_ren, renderers, inventory, is_boss=False, bg_type="bush1")
                     state = ST_BATTLE
                     bush_cd = BUSH_COOLDOWN
                     ow_menu_active = False
                 elif cur_tile == T_BUSH2:
                     enemies = spawn_bush2_enemies(rabbit.level)
-                    battle_sys = BattleSystem(party, enemies, text_ren, renderers, inventory, is_boss=False)
+                    battle_sys = BattleSystem(party, enemies, text_ren, renderers, inventory, is_boss=False, bg_type="bush2")
                     state = ST_BATTLE
                     bush_cd = BUSH_COOLDOWN
                     ow_menu_active = False
