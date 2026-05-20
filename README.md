@@ -142,7 +142,7 @@ Khi chạm trán quái vật hoang dã hoặc trùm cuối, giao diện chiến 
 
 ---
 
-## ⚔ Cơ Chế Gameplay Chính
+##  Cơ Chế Gameplay Chính
 
 1. **Khám Phá & Chạm Trán**:
    * Di chuyển chú Thỏ vào các khu vực bụi cỏ tròn xanh lá cây (Bụi cỏ 1 hoặc Bụi cỏ 2) để gặp quái thú hoang dã ngẫu nhiên.
