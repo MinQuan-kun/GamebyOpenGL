@@ -35,16 +35,323 @@ BG_COLORS = {
 }
 
 
-def draw_battle_bg(is_boss=False):
-    key = "boss" if is_boss else "grass"
-    c1, c2 = BG_COLORS[key]
+def _draw_quad(x, y, w, h, color):
     glDisable(GL_TEXTURE_2D)
+    glColor3f(*color)
     glBegin(GL_QUADS)
-    glColor3f(*c2); glVertex2f(0, 0)
-    glColor3f(*c2); glVertex2f(SCREEN_WIDTH, 0)
-    glColor3f(*c1); glVertex2f(SCREEN_WIDTH, SCREEN_HEIGHT)
-    glColor3f(*c1); glVertex2f(0, SCREEN_HEIGHT)
+    glVertex2f(x, y)
+    glVertex2f(x + w, y)
+    glVertex2f(x + w, y + h)
+    glVertex2f(x, y + h)
     glEnd()
+    glColor3f(1, 1, 1)
+
+
+def _draw_circle(cx, cy, r, color, segments=32):
+    glDisable(GL_TEXTURE_2D)
+    glColor3f(*color)
+    glBegin(GL_TRIANGLE_FAN)
+    glVertex2f(cx, cy)
+    for i in range(segments + 1):
+        a = 2 * math.pi * i / segments
+        glVertex2f(cx + math.cos(a) * r, cy + math.sin(a) * r)
+    glEnd()
+    glColor3f(1, 1, 1)
+
+
+def _draw_platform(cx, cy, rx, ry, color):
+    glDisable(GL_TEXTURE_2D)
+    glColor3f(*color)
+    glBegin(GL_TRIANGLE_FAN)
+    glVertex2f(cx, cy)
+    for i in range(49):
+        a = 2 * math.pi * i / 48
+        glVertex2f(cx + math.cos(a) * rx, cy + math.sin(a) * ry)
+    glEnd()
+    glColor3f(1, 1, 1)
+
+
+def _draw_rect(x, y, w, h, color):
+    glDisable(GL_TEXTURE_2D)
+    glColor3f(*color)
+    glBegin(GL_QUADS)
+    glVertex2f(x, y)
+    glVertex2f(x + w, y)
+    glVertex2f(x + w, y + h)
+    glVertex2f(x, y + h)
+    glEnd()
+    glColor3f(1, 1, 1)
+
+
+def _draw_circle(cx, cy, r, color, segments=24):
+    glDisable(GL_TEXTURE_2D)
+    glColor3f(*color)
+    glBegin(GL_TRIANGLE_FAN)
+    glVertex2f(cx, cy)
+
+    for i in range(segments + 1):
+        a = 2 * math.pi * i / segments
+        glVertex2f(cx + math.cos(a) * r, cy + math.sin(a) * r)
+
+    glEnd()
+    glColor3f(1, 1, 1)
+
+
+def _draw_tree_cluster(x, y, scale=1.0, dark=False):
+    trunk = (0.20, 0.11, 0.04) if not dark else (0.05, 0.02, 0.02)
+    leaf1 = (0.10, 0.36, 0.10) if not dark else (0.07, 0.02, 0.02)
+    leaf2 = (0.14, 0.48, 0.13) if not dark else (0.11, 0.03, 0.03)
+
+    _draw_rect(x + 16 * scale, y, 12 * scale, 55 * scale, trunk)
+    _draw_circle(x + 20 * scale, y + 58 * scale, 34 * scale, leaf1)
+    _draw_circle(x - 2 * scale, y + 48 * scale, 24 * scale, leaf2)
+    _draw_circle(x + 42 * scale, y + 46 * scale, 26 * scale, leaf2)
+
+
+def _draw_round_bush(x, y, scale=1.0, variant=0):
+    if variant == 0:
+        c1, c2, c3 = (0.12, 0.45, 0.12), (0.18, 0.58, 0.15), (0.22, 0.66, 0.18)
+    else:
+        c1, c2, c3 = (0.30, 0.48, 0.10), (0.42, 0.62, 0.12), (0.52, 0.72, 0.16)
+
+    _draw_circle(x, y, 24 * scale, c1)
+    _draw_circle(x + 20 * scale, y + 3 * scale, 22 * scale, c2)
+    _draw_circle(x - 18 * scale, y + 1 * scale, 20 * scale, c2)
+    _draw_circle(x + 2 * scale, y + 16 * scale, 21 * scale, c3)
+
+
+def _draw_flower_patch(x, y, color=(0.95, 0.78, 0.25)):
+    _draw_circle(x, y, 3, color, 10)
+    _draw_circle(x + 8, y + 5, 3, color, 10)
+    _draw_circle(x - 7, y + 6, 2.5, color, 10)
+
+
+def _draw_grass_strokes(base_y, color):
+    glDisable(GL_TEXTURE_2D)
+    glColor3f(*color)
+    glLineWidth(2)
+    glBegin(GL_LINES)
+
+    for x in range(20, SCREEN_WIDTH, 38):
+        h = 10 + (x % 5) * 3
+        glVertex2f(x, base_y)
+        glVertex2f(x + 5, base_y + h)
+
+    glEnd()
+    glColor3f(1, 1, 1)
+
+
+def draw_battle_bg(bg_type="bush1"):
+    MID_Y = SCREEN_HEIGHT // 2
+
+    # Trời chỉ xuất hiện phía sau cây/bụi
+    SKY_START_Y = MID_Y + 120
+
+    glDisable(GL_TEXTURE_2D)
+
+    # ───────────────── BASE BACKGROUND ─────────────────
+    if bg_type == "boss":
+        top = (0.25, 0.08, 0.08)
+        bottom = (0.10, 0.03, 0.03)
+
+    elif bg_type == "bush2":
+        top = (0.40, 0.62, 0.22)
+        bottom = (0.18, 0.36, 0.13)
+
+    else:
+        top = (0.25, 0.58, 0.24)
+        bottom = (0.12, 0.34, 0.12)
+
+    glBegin(GL_QUADS)
+
+    glColor3f(*bottom)
+    glVertex2f(0, 0)
+
+    glColor3f(*bottom)
+    glVertex2f(SCREEN_WIDTH, 0)
+
+    glColor3f(*top)
+    glVertex2f(SCREEN_WIDTH, SCREEN_HEIGHT)
+
+    glColor3f(*top)
+    glVertex2f(0, SCREEN_HEIGHT)
+
+    glEnd()
+
+    # ───────────────── SKY (ONLY NON-BOSS) ─────────────────
+    if bg_type != "boss":
+
+        sky_top = (0.50, 0.82, 1.00)
+        sky_bottom = (0.30, 0.68, 0.92)
+
+        glBegin(GL_QUADS)
+
+        glColor3f(*sky_bottom)
+        glVertex2f(0, SKY_START_Y)
+
+        glColor3f(*sky_bottom)
+        glVertex2f(SCREEN_WIDTH, SKY_START_Y)
+
+        glColor3f(*sky_top)
+        glVertex2f(SCREEN_WIDTH, SCREEN_HEIGHT)
+
+        glColor3f(*sky_top)
+        glVertex2f(0, SCREEN_HEIGHT)
+
+        glEnd()
+
+        # Clouds
+        for cx, cy, scale in [
+            (180, SKY_START_Y + 120, 1.0),
+            (500, SKY_START_Y + 160, 1.25),
+            (850, SKY_START_Y + 115, 0.9),
+            (1130, SKY_START_Y + 150, 1.1),
+        ]:
+
+            cloud_col = (0.95, 0.98, 1.0)
+
+            _draw_circle(cx, cy, 28 * scale, cloud_col)
+            _draw_circle(cx + 30 * scale, cy + 8 * scale, 24 * scale, cloud_col)
+            _draw_circle(cx - 32 * scale, cy + 6 * scale, 22 * scale, cloud_col)
+            _draw_circle(cx + 8 * scale, cy + 18 * scale, 26 * scale, cloud_col)
+
+    # ───────────────── BOSS ─────────────────
+    if bg_type == "boss":
+
+        _draw_rect(
+            0,
+            0,
+            SCREEN_WIDTH,
+            MID_Y - 70,
+            (0.13, 0.04, 0.03)
+        )
+
+        _draw_rect(
+            0,
+            MID_Y - 70,
+            SCREEN_WIDTH,
+            8,
+            (0.22, 0.06, 0.04)
+        )
+
+        # Trees
+        for x in range(40, SCREEN_WIDTH, 115):
+            _draw_tree_cluster(
+                x,
+                MID_Y + 40,
+                1.25,
+                dark=True
+            )
+
+        # Ember particles
+        for x in range(60, SCREEN_WIDTH, 90):
+
+            _draw_circle(
+                x,
+                MID_Y + 20 + (x % 4) * 9,
+                3,
+                (0.65, 0.16, 0.06),
+                10
+            )
+
+    # ───────────────── BUSH 2 ─────────────────
+    elif bg_type == "bush2":
+
+        _draw_rect(
+            0,
+            0,
+            SCREEN_WIDTH,
+            MID_Y - 70,
+            (0.22, 0.42, 0.14)
+        )
+
+        _draw_rect(
+            0,
+            MID_Y - 70,
+            SCREEN_WIDTH,
+            8,
+            (0.38, 0.56, 0.18)
+        )
+
+        # Bushes
+        for x in range(35, SCREEN_WIDTH, 105):
+
+            _draw_round_bush(
+                x,
+                MID_Y + 80 + (x % 3) * 12,
+                1.05,
+                variant=1
+            )
+
+        # Flowers
+        for x in range(65, SCREEN_WIDTH, 125):
+
+            _draw_flower_patch(
+                x,
+                MID_Y + 45 + (x % 2) * 18,
+                (0.96, 0.84, 0.24)
+            )
+
+        # Grass
+        _draw_grass_strokes(
+            MID_Y + 10,
+            (0.55, 0.78, 0.25)
+        )
+
+    # ───────────────── BUSH 1 ─────────────────
+    else:
+
+        _draw_rect(
+            0,
+            0,
+            SCREEN_WIDTH,
+            MID_Y - 70,
+            (0.16, 0.40, 0.13)
+        )
+
+        _draw_rect(
+            0,
+            MID_Y - 70,
+            SCREEN_WIDTH,
+            8,
+            (0.28, 0.55, 0.20)
+        )
+
+        # Trees
+        for x in range(80, SCREEN_WIDTH, 180):
+
+            _draw_tree_cluster(
+                x,
+                MID_Y + 70,
+                0.78,
+                dark=False
+            )
+
+        # Bushes
+        for x in range(35, SCREEN_WIDTH, 120):
+
+            _draw_round_bush(
+                x,
+                MID_Y + 45 + (x % 4) * 8,
+                0.85,
+                variant=0
+            )
+
+        # Flowers
+        for x in range(60, SCREEN_WIDTH, 155):
+
+            _draw_flower_patch(
+                x,
+                MID_Y + 30 + (x % 3) * 10,
+                (0.94, 0.86, 0.58)
+            )
+
+        # Grass
+        _draw_grass_strokes(
+            MID_Y + 10,
+            (0.32, 0.68, 0.25)
+        )
+
     glColor3f(1, 1, 1)
     glEnable(GL_TEXTURE_2D)
 
@@ -61,7 +368,7 @@ ALLY_BASE_Y = 320
 
 
 class BattleSystem:
-    def __init__(self, party, enemies, text_renderer, renderers, inventory, is_boss=False):
+    def __init__(self, party, enemies, text_renderer, renderers, inventory, is_boss=False, bg_type="bush1"):
         self.party       = party
         self.inventory   = inventory
         self.rabbit      = next((m for m in party if isinstance(m, Rabbit)), party[0])
@@ -69,6 +376,7 @@ class BattleSystem:
         self.text_ren    = text_renderer
         self.renderers   = renderers        # dict: kind -> SpriteRenderer
         self.is_boss     = is_boss
+        self.bg_type = "boss" if is_boss else bg_type
 
         # Gán vị trí cho địch
         for i, e in enumerate(self.enemies):
@@ -1047,7 +1355,7 @@ class BattleSystem:
 
     # ── Draw ─────────────────────────────────────────────────────────────────
     def draw(self):
-        draw_battle_bg(self.is_boss)
+        draw_battle_bg(self.bg_type)
 
         # Vẽ địch
         living = self._living_enemies()
