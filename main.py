@@ -1,4 +1,5 @@
 # main.py  –  Pokemon Turn-Based Game (OpenGL + Pygame)
+import math
 import pygame as pg
 from OpenGL.GL import *
 from OpenGL.GLU import *
@@ -42,7 +43,7 @@ def draw_title(text_ren, bg_renderer=None):
     glClearColor(0.05, 0.08, 0.05, 1.0)
     glClear(GL_COLOR_BUFFER_BIT)
     if bg_renderer:
-        bg_renderer.draw(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0)
+        bg_renderer.draw(-5, -5, SCREEN_WIDTH + 10, SCREEN_HEIGHT + 10, 0)
     # Tiêu đề
     from game.ui import draw_rect_gl, draw_panel
     draw_panel(SCREEN_WIDTH//2 - 320, SCREEN_HEIGHT//2 - 20, 640, 120, 220)
@@ -79,8 +80,32 @@ def draw_win(text_ren, rabbit):
                        size=22, color=(160, 200, 160), center_x=True)
 
 
+def play_overworld_music():
+    try:
+        if pg.mixer.get_init():
+            pg.mixer.music.load("assets/sounds/background_music.mp3")
+            pg.mixer.music.set_volume(0.5)
+            pg.mixer.music.play(-1)
+    except Exception as e:
+        print(f"Cannot load background music: {e}")
+
+def play_battle_music():
+    try:
+        if pg.mixer.get_init():
+            pg.mixer.music.load("assets/sounds/battle_music.mp3")
+            pg.mixer.music.set_volume(0.5)
+            pg.mixer.music.play(-1)
+    except Exception as e:
+        print(f"Cannot load battle music: {e}")
+
+
 def main():
     pg.init()
+    try:
+        pg.mixer.init()
+    except Exception as e:
+        print(f"Cannot init mixer: {e}")
+    play_overworld_music()
     pg.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pg.DOUBLEBUF | pg.OPENGL)
     pg.display.set_caption("Rabbit Adventure – Turn-Based Pokemon")
     setup_opengl()
@@ -166,6 +191,16 @@ def main():
 
     clock = pg.time.Clock()
 
+    try:
+        if pg.mixer.get_init():
+            walk_sfx = pg.mixer.Sound("assets/sounds/walk_sfx.mp3")
+            walk_sfx.set_volume(0.5)
+        else:
+            walk_sfx = None
+    except Exception:
+        walk_sfx = None
+    is_walking_sound_playing = False
+
     while True:
         events = pg.event.get()
         for event in events:
@@ -185,6 +220,7 @@ def main():
                     boss_defeated = False
                     bush_cd = 0
                     state = ST_OVERWORLD
+                    play_overworld_music()
 
             # ── OVERWORLD ───────────────────────────────────────────────
             elif state == ST_OVERWORLD:
@@ -194,9 +230,9 @@ def main():
                         if ow_menu_active:
                             ow_menu_selected = 0
                     elif ow_menu_active:
-                        if event.key in (pg.K_UP, pg.K_w):
+                        if event.key in (pg.K_UP, pg.K_w, pg.K_LEFT, pg.K_a):
                             ow_menu_selected = (ow_menu_selected - 1) % len(ow_menu_options)
-                        elif event.key in (pg.K_DOWN, pg.K_s):
+                        elif event.key in (pg.K_DOWN, pg.K_s, pg.K_RIGHT, pg.K_d):
                             ow_menu_selected = (ow_menu_selected + 1) % len(ow_menu_options)
                         elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
                             sel_opt = ow_menu_options[ow_menu_selected]
@@ -227,9 +263,9 @@ def main():
                         state = ST_OVERWORLD
                         ow_menu_active = True
                         ow_menu_selected = 0
-                    elif event.key in (pg.K_UP, pg.K_w):
+                    elif event.key in (pg.K_UP, pg.K_w, pg.K_LEFT, pg.K_a):
                         item_selected_idx = (item_selected_idx - 1) % len(item_menu_options)
-                    elif event.key in (pg.K_DOWN, pg.K_s):
+                    elif event.key in (pg.K_DOWN, pg.K_s, pg.K_RIGHT, pg.K_d):
                         item_selected_idx = (item_selected_idx + 1) % len(item_menu_options)
                     elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
                         sel_item = item_menu_options[item_selected_idx]
@@ -290,9 +326,9 @@ def main():
                             else:
                                 state = ST_OVERWORLD
                                 ow_menu_active = True
-                    elif event.key in (pg.K_UP, pg.K_w):
+                    elif event.key in (pg.K_UP, pg.K_w, pg.K_LEFT, pg.K_a):
                         party_selected_idx = (party_selected_idx - 1) % 6
-                    elif event.key in (pg.K_DOWN, pg.K_s):
+                    elif event.key in (pg.K_DOWN, pg.K_s, pg.K_RIGHT, pg.K_d):
                         party_selected_idx = (party_selected_idx + 1) % 6
                     elif event.key in (pg.K_RETURN, pg.K_z, pg.K_SPACE):
                         if party_menu_mode == "revive":
@@ -305,6 +341,13 @@ def main():
                                         member.set_anim("idle")
                                     member_name = "Rabbit" if isinstance(member, Rabbit) else member.KIND.capitalize()
                                     ow_message = f"Revived {member_name}!"
+                                    try:
+                                        if pg.mixer.get_init():
+                                            sfx = pg.mixer.Sound("assets/sounds/revive_sfx.mp3")
+                                            sfx.set_volume(0.8)
+                                            sfx.play()
+                                    except Exception as e:
+                                        print(f"Cannot play revive SFX: {e}")
                                     ow_post_message_state = ST_ITEM_MENU
                                     state = ST_MESSAGE
                                     party_menu_mode = None
@@ -333,6 +376,13 @@ def main():
                                     member.hp = min(member.max_hp, member.hp + heal_amt)
                                     member_name = "Rabbit" if isinstance(member, Rabbit) else member.KIND.capitalize()
                                     ow_message = f"{member_name} recovered {heal_amt} HP!"
+                                    try:
+                                        if pg.mixer.get_init():
+                                            sfx = pg.mixer.Sound("assets/sounds/heal_sfx.mp3")
+                                            sfx.set_volume(0.8)
+                                            sfx.play()
+                                    except Exception as e:
+                                        print(f"Cannot play heal SFX: {e}")
                                     ow_post_message_state = ST_ITEM_MENU
                                     state = ST_MESSAGE
                                     party_menu_mode = None
@@ -395,11 +445,25 @@ def main():
                     if result == "win" and battle_sys.is_boss:
                         state = ST_WIN
                         boss_defeated = True
+                        try:
+                            if pg.mixer.get_init():
+                                pg.mixer.music.stop()
+                        except Exception:
+                            pass
                     else:
                         if all(m.hp <= 0 for m in party) or rabbit.hp <= 0:
                             state = ST_GAMEOVER
+                            try:
+                                if pg.mixer.get_init():
+                                    pg.mixer.music.stop()
+                                    go_sfx = pg.mixer.Sound("assets/sounds/game_over_sfx.wav")
+                                    go_sfx.set_volume(0.8)
+                                    go_sfx.play()
+                            except Exception:
+                                pass
                         else:
                             state = ST_OVERWORLD
+                            play_overworld_music()
                             bush_cd = BUSH_COOLDOWN
                             # Lưu lại ô cỏ vừa kết thúc trận đấu để không gặp lại khi đứng yên
                             ow_player.last_battle_tile = (ow_player.col(), ow_player.row())
@@ -448,22 +512,25 @@ def main():
                 getattr(ow_player, 'last_battle_tile', None) is None):
                 # Trigger encounter
                 if cur_tile == T_BOSS and not boss_defeated:
-                    boss_lv = max(1, rabbit.level)
+                    boss_lv = max(1, math.ceil(sum(m.level for m in party) * 0.35))
                     fox = Fox(boss_lv)
                     battle_sys = BattleSystem(party, [fox], text_ren, renderers, inventory, is_boss=True, bg_type="boss")
                     state = ST_BATTLE
+                    play_battle_music()
                     bush_cd = BUSH_COOLDOWN
                     ow_menu_active = False
                 elif cur_tile == T_BUSH:
                     enemies = spawn_bush1_enemies(rabbit.level)
                     battle_sys = BattleSystem(party, enemies, text_ren, renderers, inventory, is_boss=False, bg_type="bush1")
                     state = ST_BATTLE
+                    play_battle_music()
                     bush_cd = BUSH_COOLDOWN
                     ow_menu_active = False
                 elif cur_tile == T_BUSH2:
                     enemies = spawn_bush2_enemies(rabbit.level)
                     battle_sys = BattleSystem(party, enemies, text_ren, renderers, inventory, is_boss=False, bg_type="bush2")
                     state = ST_BATTLE
+                    play_battle_music()
                     bush_cd = BUSH_COOLDOWN
                     ow_menu_active = False
 
@@ -543,6 +610,15 @@ def main():
 
         elif state == ST_WIN:
             draw_win(text_ren, rabbit)
+
+        should_play_walk = (state == ST_OVERWORLD and not ow_menu_active and ow_player.moving)
+        if walk_sfx:
+            if should_play_walk and not is_walking_sound_playing:
+                walk_sfx.play(-1)
+                is_walking_sound_playing = True
+            elif not should_play_walk and is_walking_sound_playing:
+                walk_sfx.stop()
+                is_walking_sound_playing = False
 
         pg.display.flip()
         clock.tick(60)

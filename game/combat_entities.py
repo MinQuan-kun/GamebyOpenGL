@@ -206,6 +206,8 @@ class BaseEnemy:
         self.draw_y = self.base_y
         # Trạng thái
         self.is_alive_flag = True
+        self.smoke_miss_bonus = False
+        self.smoke_turns = 0
 
     def gain_exp(self, amount):
         """Cộng EXP cho quái vật đồng hành, tự động lên cấp và nâng stats."""
@@ -330,8 +332,8 @@ class Bee(BaseEnemy):
 # ─────────────────────────────────────────────────────────────────────────────
 class Fox(BaseEnemy):
     KIND     = "fox"
-    BASE_HP  = 80
-    BASE_ATK = 14
+    BASE_HP  = 75
+    BASE_ATK = 12
     BASE_EXP = 0       # Boss không cho EXP thông thường
     SPEED_ORDER = 20   # Hành động sau mọi thứ
 

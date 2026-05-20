@@ -446,8 +446,8 @@ def draw_overworld(player, text_ren, cam_x=0, cam_y=0, renderers=None):
     text_ren.draw_text(
         "WASD: Move  |  Walk into bushes to encounter monsters",
         SCREEN_WIDTH // 2,
-        12,
-        size=15,
-        color=(200, 230, 200),
+        15,
+        size=18,
+        color=(15, 15, 20),
         center_x=True
     )
