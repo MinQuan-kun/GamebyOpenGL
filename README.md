@@ -56,7 +56,7 @@ GamebyOpenGL/
 
 ---
 
-## 🛠 Công Nghệ Sử Dụng
+##  Công Nghệ Sử Dụng
 
 * **Python**: Ngôn ngữ lập trình cốt lõi chính của dự án.
 * **Pygame**: Quản lý tạo cửa sổ, xử lý sự kiện (Event Handling), đầu vào bàn phím/chuột và thiết lập bộ trộn âm thanh (Pygame Mixer).
@@ -66,7 +66,7 @@ GamebyOpenGL/
 
 ---
 
-## 🚀 Hướng Dẫn Cài Đặt & Chạy Game
+##  Hướng Dẫn Cài Đặt & Chạy Game
 
 > [!IMPORTANT]
 > Game chạy ổn định nhất trên **Python 3.9 đến 3.12**.
@@ -116,7 +116,7 @@ python main.py
 
 ---
 
-## 🎮 Hướng Dẫn Điều Khiển
+##  Hướng Dẫn Điều Khiển
 
 ### 1. Tại Overworld (Bản đồ thế giới)
 
