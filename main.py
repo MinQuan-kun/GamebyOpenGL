@@ -44,13 +44,10 @@ def draw_title(text_ren, bg_renderer=None):
     glClear(GL_COLOR_BUFFER_BIT)
     if bg_renderer:
         bg_renderer.draw(-5, -5, SCREEN_WIDTH + 10, SCREEN_HEIGHT + 10, 0)
-    # Tiêu đề
-    from game.ui import draw_rect_gl, draw_panel
-    draw_panel(SCREEN_WIDTH//2 - 320, SCREEN_HEIGHT//2 - 20, 640, 120, 220)
-    text_ren.draw_text("RABBIT ADVENTURE", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 50,
-                       size=60, color=(100, 240, 100), center_x=True)
-    text_ren.draw_text("Turn-Based  Pokemon-Style", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 10,
-                       size=26, color=(180, 230, 180), center_x=True)
+    from game.ui import draw_panel
+    draw_panel(SCREEN_WIDTH//2 - 190, SCREEN_HEIGHT//2 + 10, 380, 90, 220)
+    text_ren.draw_text("USAGIMON", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 + 55,
+                       size=60, color=(100, 240, 100), center_x=True, center_y=True)
     text_ren.draw_text("Press ENTER to start", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 60,
                        size=22, color=(200, 200, 100), center_x=True)
 
@@ -107,7 +104,7 @@ def main():
         print(f"Cannot init mixer: {e}")
     play_overworld_music()
     pg.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pg.DOUBLEBUF | pg.OPENGL)
-    pg.display.set_caption("Rabbit Adventure – Turn-Based Pokemon")
+    pg.display.set_caption("UsagiMon")
     setup_opengl()
 
     text_ren = TextRenderer("consolas")

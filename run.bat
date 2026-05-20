@@ -1,6 +1,6 @@
 @echo off
 echo ============================================
-echo    Game Platformer 2D - OpenGL
+echo    UsagiMon - OpenGL
 echo ============================================
 echo.
 

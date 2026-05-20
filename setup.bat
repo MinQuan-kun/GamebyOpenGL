@@ -1,6 +1,6 @@
 @echo off
 echo ============================================
-echo    SETUP - Game Platformer 2D OpenGL
+echo    SETUP - UsagiMon OpenGL
 echo ============================================
 echo.
 
