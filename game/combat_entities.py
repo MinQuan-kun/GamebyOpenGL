@@ -21,12 +21,12 @@ def _level_scale(base, level, factor=0.15):
 
 RABBIT_ANIMATIONS = {
     # Mapping frame Rabbit - chỉnh lại số frame theo rabbit_spritesheet.png của bạn
-    "idle": Animation(frames=[0], speed=8, loop=True),
+    "idle": Animation(frames=[0], speed=24, loop=True),
     "hit": Animation(frames=[5], speed=6, loop=False),
     "poison": Animation(frames=[6], speed=8, loop=False),
     "guard": Animation(frames=[2], speed=7, loop=False),
     "heal": Animation(frames=[7], speed=8, loop=False),
-    "attack": Animation(frames=[12, 13, 14, 15, 16, 17], speed=10, loop=False),
+    "attack": Animation(frames=[12, 13, 14, 15, 16, 17], speed=9, loop=False),
     "ranged": Animation(frames=[4], speed=5, loop=False),
     "net": Animation(frames=[4], speed=5, loop=False),
     "dead": Animation(frames=[8, 9], speed=12, loop=False),
@@ -155,6 +155,24 @@ FOX_ANIMATIONS = {
     "dead": Animation(frames=[12, 13, 14], speed=12, loop=False),
 }
 
+SLIME_ANIMATIONS = {
+    "idle": Animation(frames=[0, 2, 1], speed=20, loop=True),
+    "attack": Animation(frames=[8, 9, 10, 11], speed=8, loop=False),
+    "heal": Animation(frames=[13], speed=8, loop=False),
+    "dead": Animation(frames=[4, 5, 6, 7], speed=12, loop=False),
+    "hit": Animation(frames=[1, 2, 3], speed=12, loop=False),
+    "guard": Animation(frames=[12], speed=8, loop=False),
+}
+
+BEE_ANIMATIONS = {
+    "idle": Animation(frames=[3,2, 1], speed=20, loop=True),
+    "attack": Animation(frames=[7], speed=7, loop=False),
+    "heal": Animation(frames=[0], speed=8, loop=False),
+    "dead": Animation(frames=[5, 4], speed=12, loop=False),
+    "hit": Animation(frames=[6], speed=6, loop=False),
+    "guard": Animation(frames=[7], speed=8, loop=False),
+}
+
 class BaseEnemy:
     KIND    = "enemy"
     BASE_HP  = 20
@@ -212,6 +230,49 @@ class BaseEnemy:
         """Trả về dict mô tả hành động."""
         return {"type": "attack", "target": random.choice(targets)}
 
+    def setup_animations(self, animation_table):
+        self.animations = {
+            name: Animation(anim.frames[:], anim.speed, anim.loop)
+            for name, anim in animation_table.items()
+        }
+        self.anim_state = "idle"
+        self.current_anim = self.animations["idle"]
+
+
+    def set_anim(self, state):
+        if not self.animations:
+            return
+        if state not in self.animations:
+            return
+        if self.anim_state == state:
+            return
+
+        self.anim_state = state
+        self.current_anim = self.animations[state]
+        self.current_anim.reset()
+
+
+    def update_animation(self):
+        if not self.current_anim:
+            return
+
+        self.current_anim.update()
+
+        if self.anim_state == "dead":
+            return
+
+        if self.current_anim.finished:
+            if self.hp <= 0:
+                self.set_anim("dead")
+            elif self.anim_state in ("attack", "hit", "heal", "guard"):
+                self.set_anim("idle")
+
+
+    def get_current_frame(self):
+        if self.current_anim:
+            return self.current_anim.get_frame()
+        return 0
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  SLIME
@@ -221,10 +282,11 @@ class Slime(BaseEnemy):
     BASE_HP  = 18
     BASE_ATK = 5
     BASE_EXP = 8
-    SPEED_ORDER = 10   # Hành động sau Bee
+    SPEED_ORDER = 10
 
     def __init__(self, level):
         super().__init__(level)
+        self.setup_animations(SLIME_ANIMATIONS)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -235,11 +297,11 @@ class Bee(BaseEnemy):
     BASE_HP  = 14
     BASE_ATK = 7
     BASE_EXP = 10
-    SPEED_ORDER = 5    # Hành động trước Slime
+    SPEED_ORDER = 5
 
     def __init__(self, level):
         super().__init__(level)
-
+        self.setup_animations(BEE_ANIMATIONS)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  FOX (Boss)
