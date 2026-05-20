@@ -10,7 +10,7 @@ from game.combat_entities import (
 )
 from game.ui import (
     draw_rect_gl, draw_rect_outline, draw_panel,
-    draw_ally_status, draw_enemy_status, draw_command_box,
+    draw_ally_status, draw_enemy_status, draw_ally_sprite_status, draw_target_aura, draw_command_box,
     FloatingText, MessageLog, COL_WHITE, COL_YELLOW,
     COL_RED, COL_GREEN, COL_ORANGE, COL_PURPLE, COL_GRAY
 )
@@ -412,6 +412,8 @@ class BattleSystem:
         self.result       = None   # "win" / "lose" / "run"
         self.exp_gained   = 0
         self.leveled_up   = False
+        self.caught_enemy_targets = []  # Quái đã bị bắt trong trận
+
 
         # Reset trạng thái tất cả quái vật đồng minh
         for ally in self.party:
@@ -1096,6 +1098,7 @@ class BattleSystem:
             
             prev_hp = tgt.hp
             tgt.hp = 0  # xóa khỏi trận đấu
+            self.caught_enemy_targets.append(tgt)
             
             # Thêm quái vật vào party
             from game.combat_entities import Slime, Bee
@@ -1133,7 +1136,10 @@ class BattleSystem:
             self._next_ally_action()
 
     def _resolve_win(self):
-        total_exp = sum(e.exp_reward for e in self.enemies)
+        total_exp = sum(
+            e.exp_reward for e in self.enemies
+            if e not in self.caught_enemy_targets
+        )
         self.exp_gained = total_exp
         rabbit = next((m for m in self.party if isinstance(m, Rabbit)), self.party[0])
         self.leveled_up = rabbit.gain_exp(total_exp)
@@ -1428,6 +1434,16 @@ class BattleSystem:
                     flip_x=flip
                 )
 
+                # Vẽ tên + cấp phía trên sprite đồng minh
+                draw_ally_sprite_status(
+                    ally,
+                    int(ally.draw_x),
+                    int(ally.draw_y),
+                    aw,
+                    ah,
+                    self.text_ren
+                )
+
         # Vẽ projectile nếu đang Ranged hoặc Catch
         if self.state == BS_PLAYER_ANIM:
             d = self.anim_data
@@ -1493,10 +1509,16 @@ class BattleSystem:
                         revive_qty=self.inventory.get("Revive", 0)
                     )
 
-            # Chỉ vẽ viền Highlight mục tiêu và dòng hướng dẫn khi ở trạng thái chọn mục tiêu hoặc ném Net
+            # Chỉ vẽ hiệu ứng highlight mục tiêu và dòng hướng dẫn khi ở trạng thái chọn mục tiêu hoặc ném Net
             if self.state in (BS_TARGET_SELECT, "catch_target_select") and living:
                 te = living[tgt_idx]
-                draw_rect_outline(int(te.draw_x)-4, int(te.draw_y)-4, 98, 98, (255, 220, 0), 3)
+                draw_target_aura(
+                    int(te.draw_x) - 4,
+                    int(te.draw_y) - 4,
+                    98,
+                    98,
+                    anim_frame=self.anim_timer
+                )
                 self.text_ren.draw_text(
                     "W/S or Arrows: Choose target | Enter/Z: Confirm | Esc: Back",
                     SCREEN_WIDTH//2,

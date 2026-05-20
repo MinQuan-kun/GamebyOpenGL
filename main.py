@@ -38,9 +38,11 @@ def setup_opengl():
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
 
-def draw_title(text_ren):
+def draw_title(text_ren, bg_renderer=None):
     glClearColor(0.05, 0.08, 0.05, 1.0)
     glClear(GL_COLOR_BUFFER_BIT)
+    if bg_renderer:
+        bg_renderer.draw(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0)
     # Tiêu đề
     from game.ui import draw_rect_gl, draw_panel
     draw_panel(SCREEN_WIDTH//2 - 320, SCREEN_HEIGHT//2 - 20, 640, 120, 220)
@@ -50,8 +52,6 @@ def draw_title(text_ren):
                        size=26, color=(180, 230, 180), center_x=True)
     text_ren.draw_text("Press ENTER to start", SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 60,
                        size=22, color=(200, 200, 100), center_x=True)
-    text_ren.draw_text("WASD: Move  |  Arrows: Select  |  ENTER/Z: Confirm  |  1-2-3: Select Target",
-                       SCREEN_WIDTH//2, 30, size=16, color=(140, 160, 140), center_x=True)
 
 
 def draw_gameover(text_ren):
@@ -128,6 +128,7 @@ def main():
         ),
 
         "grass":  safe_renderer("assets/newassets/grass.png", 1, 1),
+        "title_bg": safe_renderer("assets/img/background.png", 1, 1),
     }
 
     def new_game():
@@ -416,7 +417,7 @@ def main():
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
         if state == ST_TITLE:
-            draw_title(text_ren)
+            draw_title(text_ren, renderers.get("title_bg"))
 
         elif state == ST_OVERWORLD:
             keys = pg.key.get_pressed()

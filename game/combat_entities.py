@@ -59,7 +59,7 @@ class Rabbit:
         self.draw_y = self.base_y
 
     def _calc_exp_to_next(self):
-        return 20 + self.level * 15
+        return self.level
 
     def _recalc_stats(self):
         self.max_hp  = _level_scale(RABBIT_BASE_HP,  self.level, 0.12)
@@ -190,10 +190,10 @@ class BaseEnemy:
         self.level = max(1, level)
         self.max_hp  = _level_scale(self.BASE_HP,  self.level, 0.12)
         self.atk     = _level_scale(self.BASE_ATK, self.level, 0.10)
-        self.exp_reward = _level_scale(self.BASE_EXP, self.level, 0.20)
+        self.exp_reward = max(1, self.level)
         self.hp = self.max_hp
         self.exp = 0
-        self.exp_to_next = 20 + self.level * 15
+        self.exp_to_next = self.level
         # Animation
         self.anim_state = "idle"
         self.anim_timer = 0
@@ -223,7 +223,7 @@ class BaseEnemy:
                 self.hp = min(self.hp + (self.max_hp - old_max), self.max_hp)
             else:
                 self.hp = 0
-            self.exp_to_next = 20 + self.level * 15
+            self.exp_to_next = self.level
             leveled = True
         return leveled
 

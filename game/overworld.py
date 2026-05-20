@@ -147,7 +147,7 @@ class OverworldPlayer:
 
         self.anim_timer += 1
         if self.moving:
-            if self.anim_timer % 8 == 0:
+            if self.anim_timer % 6 == 0:
                 self.frame_index = (self.frame_index + 1) % 4
         else:
             self.frame_index = 0

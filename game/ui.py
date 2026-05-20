@@ -1,5 +1,6 @@
 # game/ui.py
 # Các hàm vẽ UI cho battle và overworld
+import math
 from OpenGL.GL import *
 import pygame as pg
 from utils.constants import *
@@ -107,7 +108,11 @@ def draw_ally_status(ally, text_renderer, panel_x=20, panel_y=20):
 #  ENEMY STATUS (hiển thị HP trên đầu địch)
 # ─────────────────────────────────────────────────────────────────────────────
 def draw_enemy_status(enemy, ex, ey, ew, eh, text_renderer, index=0):
-    """Vẽ thanh HP nhỏ phía trên sprite địch."""
+    """Vẽ thanh HP nhỏ phía trên sprite địch. Chỉ hiển thị khi quái còn sống."""
+    # Chỉ vẽ thông tin nếu quái còn sống
+    if not enemy.is_alive():
+        return
+    
     bw, bh = 80, 10
     bx = ex + ew // 2 - bw // 2
     by = ey + eh + 5
@@ -117,6 +122,72 @@ def draw_enemy_status(enemy, ex, ey, ew, eh, text_renderer, index=0):
                 COL_HP_BG)
     lbl = f"Lv.{enemy.level} {enemy.KIND.capitalize()}"
     text_renderer.draw_text(lbl, bx, by + bh + 2, size=13, color=COL_WHITE)
+
+
+def draw_ally_sprite_status(ally, ax, ay, aw, ah, text_renderer):
+    """Vẽ tên + cấp phía trên sprite đồng minh (tương tự quái đối thủ)."""
+    from game.combat_entities import Rabbit
+    name = "Rabbit" if isinstance(ally, Rabbit) else ally.KIND.capitalize()
+    lbl = f"Lv.{ally.level} {name}"
+    # Vị trí: trên cùng của sprite, căn giữa
+    tx = ax + aw // 2
+    ty = ay + ah + 5
+    text_renderer.draw_text(lbl, tx, ty, size=13, color=COL_YELLOW, center_x=True)
+
+
+def draw_target_aura(cx, cy, w, h, anim_frame=0):
+    """
+    Vẽ hiệu ứng aura pulsante brilhante xung quanh mục tiêu.
+    anim_frame: frame để tạo hiệu ứng pulsante
+    """
+    import math
+    # Tạo hiệu ứng pulsante (0-1-0)
+    pulse = (math.sin(anim_frame * 0.1) + 1) / 2  # Giá trị từ 0 đến 1
+    
+    # Tâm của sprite
+    cx_center = cx + w // 2
+    cy_center = cy + h // 2
+    
+    # Bán kính cơ bản
+    base_radius = max(w, h) // 2 + 20
+    
+    # Vẽ 3 lớp aura với độ trong suốt giảm dần
+    for layer in range(3):
+        # Bán kính tăng cho mỗi lớp
+        radius = base_radius + (layer * 15) + (pulse * 10)
+        
+        # Độ trong suốt giảm dần
+        alpha = int(120 * (1 - layer * 0.3) * (1 - pulse * 0.3))
+        alpha = max(10, min(255, alpha))
+        
+        # Màu vàng-cam để thể hiện energy
+        color = (255, 200, 80)
+        
+        # Vẽ hình tròn
+        draw_circle_aura(cx_center, cy_center, radius, color, alpha, segments=24)
+
+
+def draw_circle_aura(cx, cy, radius, color, alpha, segments=24):
+    """Vẽ hình tròn với alpha cho hiệu ứng aura."""
+    r, g, b = color[0]/255, color[1]/255, color[2]/255
+    a = alpha / 255
+    
+    glDisable(GL_TEXTURE_2D)
+    glEnable(GL_BLEND)
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+    glColor4f(r, g, b, a)
+    
+    glBegin(GL_TRIANGLE_FAN)
+    glVertex2f(cx, cy)  # Tâm
+    for i in range(segments + 1):
+        angle = 2 * math.pi * i / segments
+        x = cx + radius * math.cos(angle)
+        y = cy + radius * math.sin(angle)
+        glVertex2f(x, y)
+    glEnd()
+    
+    glColor4f(1, 1, 1, 1)
+    glDisable(GL_BLEND)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -153,7 +224,7 @@ def draw_command_box(selected_cmd, actor_name, text_renderer,
         cy = box_y + 12 + (rows - 1 - i) * (CMD_H + CMD_GAP)
         mid_y = cy + CMD_H // 2
 
-        is_sel = (i == selected_cmd) and enabled
+        is_sel = (i == selected_cmd)  # Luôn hiển thị tam giác cho lệnh được chọn
         col_txt = (15, 15, 20)
 
         # Ranged Attack hết đạn thì xám chữ
@@ -161,7 +232,7 @@ def draw_command_box(selected_cmd, actor_name, text_renderer,
             col_txt = (120, 120, 120)
 
         if is_sel:
-            # Vẽ con trỏ ► thay vì ▶
+            # Vẽ con trỏ ► luôn hiển thị cho lệnh được chọn
             text_renderer.draw_text("►", cx, mid_y, size=16, color=(15, 15, 20), center_y=True)
             text_renderer.draw_text(label, cx + 22, mid_y, size=16, color=col_txt, center_y=True)
         else:
